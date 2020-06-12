@@ -1,0 +1,63 @@
+<?xml version="1.0"?>
+<!-- 
+	Module S_EzloBridge.xml
+	Written by R.Boer. Based on akbooer's VeraBridge.
+	V1.00, 4 June 2020
+-->
+<scpd xmlns="urn:schemas-upnp-org:service-1-0">
+	<specVersion>
+		<major>1</major>
+		<minor>0</minor>
+	</specVersion>
+	<serviceStateTable>
+		<stateVariable sendEvents="no">
+			<name>UserID</name>
+			<dataType>string</dataType>
+		</stateVariable>
+		<stateVariable sendEvents="no">
+			<name>Password</name>
+			<dataType>string</dataType>
+		</stateVariable>
+		<stateVariable sendEvents="yes">
+			<name>LastUpdate</name>
+			<dataType>i4</dataType>
+		</stateVariable>
+		<stateVariable sendEvents="yes">
+			<name>HouseMode</name>
+			<dataType>i1</dataType>
+		</stateVariable>
+	</serviceStateTable>
+	<actionList>
+		<action>
+			<name>GetRemoteScenes</name>
+		</action>
+		<action>
+			<name>Restart</name>
+			<argumentList>
+				<argument>
+					<name>Authenticate</name>
+					<direction>in</direction>
+				</argument>
+			</argumentList>
+		</action>
+		<action>
+			<name>RunRemoteScene</name>
+			<argumentList>
+				<argument>
+					<name>SceneNum</name>
+					<direction>in</direction>
+				</argument>
+			</argumentList>
+		</action>
+		<action>
+			<name>SetHouseMode</name>
+			<argumentList>
+				<argument>
+					<name>Mode</name>
+					<direction>in</direction>
+					<relatedStateVariable>HouseMode</relatedStateVariable>
+				</argument>
+			</argumentList>
+		</action>
+	</actionList>
+</scpd>

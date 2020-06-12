@@ -1,0 +1,31 @@
+<?xml version="1.0"?>
+<!-- 
+	Module D_EzloBridge.xml
+	Written by R.Boer. Based on akbooer's VeraBridge.
+	V1.00, 4 June 2020
+-->
+<root xmlns="urn:schemas-upnp-org:device-1-0">
+	<specVersion>
+		<major>1</major>
+		<minor>0</minor>
+	</specVersion>
+  	<device>
+		<deviceType>urn:schemas-akbooer-com:device:EzloBridge:1</deviceType>
+		<Category_Num>1</Category_Num>
+		<SubCategory_Num>0</SubCategory_Num>
+		<staticJson>D_EzloBridge.json</staticJson>
+		<handleChildren>1</handleChildren>
+		<friendlyName>Ezlo Bridge</friendlyName>
+		<manufacturer>ReneBoer</manufacturer>
+		<serviceList>
+			<service>
+				<serviceType>urn:schemas-akbooer-com:service:EzloBridge1:1</serviceType>
+				<serviceId>urn:akbooer-com:serviceId:EzloBridge1</serviceId>
+				<SCPDURL>S_EzloBridge.xml</SCPDURL>
+			</service>
+		</serviceList>
+		<implementationList>
+			<implementationFile>I_EzloBridge.xml</implementationFile>
+		</implementationList>
+	</device>
+</root>

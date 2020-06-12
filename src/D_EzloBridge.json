@@ -1,0 +1,94 @@
+{
+  "default_icon": "http://raw.githubusercontent.com/akbooer/openLuup/master/icons/VeraBridge.png",
+  "inScene": "1",
+  "ToggleButton": 1,
+  "Tabs": [ 
+	{
+		"Label": {
+			"lang_tag": "tabname_control",
+			"text": "Control"
+		},
+		"Position": "0",
+		"TabType": "flash",
+		"SceneGroup": [ {
+			"id": "1",
+			"top": "0",
+			"left": "0",
+			"x": "2",
+			"y": "3"
+		} ],
+		"ControlGroup": [ {
+			"id": "1",
+			"scenegroup": "1",
+			"isSingle": "1"
+		} ],
+		"Control": [ 
+				{
+					"ControlGroup":"1",
+					"ControlType": "variable",
+					"top": "0",
+					"left": "0",
+					"Display": {
+						"Service": "urn:upnp-org:serviceId:altui1",
+						"Variable": "DisplayLine1",
+						"Top": 40,
+						"Left": 50,
+						"Width": 75,
+						"Height": 20
+					}
+				},
+				{
+					"ControlGroup":"1",
+					"ControlType": "variable",
+					"top": "1",
+					"left": "0",
+					"Display": {
+						"Service": "urn:upnp-org:serviceId:altui1",
+						"Variable": "DisplayLine2",
+						"Top": 60,
+						"Left": 50,
+						"Width": 75,
+						"Height": 20
+					}
+				},
+				{
+					"ControlGroup":"2",
+					"ControlType": "variable",
+					"top": "3",
+					"left": "0",
+					"Display": {
+						"Service": "urn:akbooer-com:serviceId:EzloBridge1",
+						"Variable": "Version",
+						"Top": 100,
+						"Left": 50,
+						"Width": 75,
+						"Height": 20
+					}
+				},
+		]
+	},
+	{ 
+		"Label": { 
+			"lang_tag": "settings", 
+			"text": "Settings" 
+		}, 
+		"TopNavigationTab": 1, 
+		"Position": "1", 
+		"TabType": "javascript", 
+		"ScriptName": "J_EzloBridge.js", 
+		"Function": "EzloBridge.Settings" 
+	},
+	{
+		"Label": {
+			"lang_tag": "advanced",
+			"text": "Advanced"
+		},
+		"Position": "2",
+		"TabType": "javascript",
+		"ScriptName": "shared.js",
+		"Function": "advanced_device"
+	} 
+  ],
+  "eventList2": [ ],
+  "device_type": "urn:schemas-akbooer-com:device:EzloBridge:1"
+}
