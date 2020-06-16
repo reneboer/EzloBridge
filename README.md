@@ -5,8 +5,6 @@ This version is early Beta.
 
 
 To-do's:
-- Reconnecting is not working without restarting openLuup.
-- Need better login error handling.
 - Add Refresh command to pull full config from Ezlo hub again.
-
-Note: For Ezlo Linux hub the certificates are not pulled from the Ezlo servers yet and you must update these manually. Not a simple process.
+- Test expired token handling
+- Better HVAC and lock support.
