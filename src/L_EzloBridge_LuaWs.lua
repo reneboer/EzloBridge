@@ -10,13 +10,14 @@ RB: 	fix for messages larger than 256 bytes.
 	fix for handling ping request
 	removed chat option from negotiate.
 	fix for fragmented packages
+	added wslastping function to look for timeouts
 
 --]]
 --luacheck: std lua51,module,read globals luup,ignore 542 611 612 614 111/_,no max line length
 
 --module("luws", package.seeall)
 
-_VERSION = 20141
+_VERSION = 20142
 
 debug_mode = false
 
@@ -387,7 +388,9 @@ local function handle_control_frame( wsconn, opcode, data )
 			unpack(wsconn.options.handler_args or {}) )
 	elseif opcode == 0x09 then -- ping
 		wssend( wsconn, 0x0a, "" ) -- reply with pong
+		wsconn.lastping_ts = timenow()	-- record last ping received
 	else
+		wsconn.lastping_ts = timenow()	-- record last pong received
 		-- 0x0a pong, no action
 		-- Other unsupported control frame
 	end
@@ -603,6 +606,12 @@ function wsreset( wsconn )
 	end
 end
 
+function wslastping(wsconn)
+--	D("wslastping(%1)", wsconn)
+	if not wsconn.lastping_ts then wsconn.lastping_ts = timenow() end
+	return wsconn.lastping_ts
+end
+
 function init(dgb)
 	debug_mode = dgb or false
 end
@@ -613,5 +622,6 @@ return {
 	wssend = wssend,
 	wsreceive = wsreceive,
 	wsclose = wsclose,
+	wslastping = wslastping,
 	wsinit = init
 }

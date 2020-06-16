@@ -25,7 +25,7 @@ var EzloBridge = (function (api) {
 			var deviceID = api.getCpanelDeviceId();
 			var deviceObj = api.getDeviceObject(deviceID);
 			var hubList = [{'value':'/port_3480','label':'Vera Hub'},{'value':'3480','label':'openLuup'},{'value':'17000','label':'Ezlo Hub'}];
-			var hmmList = [{'value':'0','label':'No mirroring'},{'value':'1','label':'Local mirrors Remote'},{'value':'2','label':'Remote mirrors Local (not working yet)'}];
+			var hmmList = [{'value':'0','label':'No mirroring'},{'value':'1','label':'Local mirrors Remote'},{'value':'2','label':'Remote mirrors Local'}];
 			var yesNo = [{'value':'0','label':'No'},{'value':'1','label':'Yes'}];
 			var logLevel = [{'value':'1','label':'Error'},{'value':'2','label':'Warning'},{'value':'8','label':'Info'},{'value':'10','label':'Debug'},{'value':'101','label':'Develop'}];
 			var html = '<div class="deviceCpanelSettingsPage">'+
@@ -43,6 +43,7 @@ var EzloBridge = (function (api) {
 //				htmlAddPulldown(deviceID, 'Only Zwave devices', 'ZWaveOnly', yesNo)+
 //				'</div>'+
 //				'<div id="'+DIV_PREFIX+deviceID+'div_system_ezlo" style="display: '+((curSystem === '17000')?'block':'none')+';" >'+
+				htmlAddInput(deviceID, 'Ezlo Hub Serial', 50, 'HubSerial')+
 				htmlAddInput(deviceID, 'Ezlo Hub User ID', 50, 'UserID')+
 				htmlAddPwdInput(deviceID, 'Ezlo Hub Password', 50, 'Password')+
 //				'</div>'+
@@ -73,6 +74,7 @@ var EzloBridge = (function (api) {
 //		var rp = htmlGetPulldownSelection(deviceID, 'RemotePort');
 //		varSet(deviceID,'RemotePort',rp);
 //		if (rp == 17000) {
+			varSet(deviceID,'HubSerial',htmlGetElemVal(deviceID, 'HubSerial'));
 			varSet(deviceID,'UserID',htmlGetElemVal(deviceID, 'UserID'));
 			varSet(deviceID,'Password',htmlGetElemVal(deviceID, 'Password'));
 //		} else {

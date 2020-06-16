@@ -33,15 +33,29 @@ ABOUT = {
 -- 2020.06.06b	Implement Ezlo as Hub to bridge
 
 -- To do's: 
--- 		better reconnect handler to deal with expired token.
+-- 		better reconnect handler to deal with expired token (did not have it expire yet to test).
 --		command queue during lost connection.
---		handle bad password with Hub socket login
 --		better support of HVAC and locks
 --		Make it work on Vera
 --		Handle device removed or added (restart connection)
 --[[
- luup_log:162: Hub broadcast for message hub.device.removed / hub.device.added
+This is what the app is sending for each time the list is refreshed (and that is often)
+2020-06-12 17:01:14.876557 INFO : Received new command: hub.devices.list
+2020-06-12 17:01:15.029776 INFO : Received new command: hub.items.list
+2020-06-12 17:01:15.107237 INFO : Received new command: hub.favorite.list
+{'method': 'hub.favorite.list', 'id': 'hub.favorite.list', 'result': {'favorites': {'devices': [], 'items': [], 'rules': []}}, 'error': None}
+From Athom:
+{"method":"hub.favorite.list","result":null"error":{"code":-32602,"message":" *request* doesn't exist, have invalid type or empty"},"id":"hub.favorite.list"}
+
+2020-06-12 17:01:15.111507 INFO : Received new command: hub.gateways.list
+{'method': 'hub.gateways.list', 'result': {'gateways': [{'settings': '', 'ready': True, 'label': 'zwave', 'name': 'zwave', 'pluginId': 'zwave', '_id': 'zwave'}, {'settings': '', 'ready': True, 'label': 'cloud_devices', 'name': 'cloud_devices', 'pluginId': 'cloud_devices', '_id': 'cloud_devices'}]}, 'error': None, 'id': 'hub.gateways.list'}
+
+2020-06-12 17:01:15.427985 INFO : Received new command: hub.room.list
+
 wait 10 seconds, before restart, configure auto restart on change.
+
+ luup_log:162: Hub broadcast for message hub.device.removed / hub.device.added
+ 
 2020-06-10 12:31:34.434   luup_log:163: Hub broadcast for message  hub.extensions.plugin.ui_broadcast
 2020-06-10 12:31:34.435   luup_log:163:       Result {
   "event":"include_finished",
@@ -1177,7 +1191,7 @@ local function ezloAPI()
 	-- Handle WebSocket incomming messages
 	local function MessageHandler(conn, opcode, data, ...)
 debug("MessageHandler "..tostring(opcode)..", "..tostring(data))
-		pingCounter = 0
+--		pingCounter = 0
 		if opcode == 0x01 then
 			-- Received text data, should be json to decode
 			local js, msg = json.decode(data)
@@ -1235,7 +1249,7 @@ debug("MessageHandler "..tostring(opcode)..", "..tostring(data))
 			-- Received ping (should be handled by luaws)
 			debug ("MessageHandler, received ping.")
 		elseif opcode == 0x0a then
-			-- Received pong (should not be possibe)
+			-- Received pong (should not be possible)
 			debug ("MessageHandler, received pong.")
 		elseif opcode == 0x08 then
 			-- Close by peer
@@ -1250,7 +1264,7 @@ debug("MessageHandler "..tostring(opcode)..", "..tostring(data))
 	end
 	
 	-- Logon to Ezlo portal and return 
-	local function PortalLogin(user_id, password)
+	local function PortalLogin(user_id, password, serial)
 		local Ezlo_MMS_salt = "oZ7QE6LcLJp6fiWzdqZc"
 		local authentication_url = "https://vera-us-oem-autha11.mios.com/autha/auth/username/%s?SHA1Password=%s&PK_Oem=1&TokenVersion=2"
 		local get_token_url = "https://cloud.ezlo.com/mca-router/token/exchange/legacy-to-cloud/"
@@ -1339,11 +1353,29 @@ debug("MessageHandler "..tostring(opcode)..", "..tostring(data))
 		data = response.data
 		local wss_user = ''
 		local wss_token = ''
+		local contr_uuid = ''
+		-- Look up uuid for controller based on serial#
 		for key, key_data in pairs(data.keys) do
-			if type(key_data.data) == "table" and wss_user == '' and wss_token == '' then
+			if key_data.meta then
+				if key_data.meta.entity then
+					if key_data.meta.entity.id then
+						if key_data.meta.entity.id == serial then
+							contr_uuid = key_data.meta.entity.uuid
+						end
+					end
+				end
+			end
+		end
+		if contr_uuid == '' then
+			return false, "Controller serial not found"
+		end
+		for key, key_data in pairs(data.keys) do
+			if key_data.data and wss_user == '' and wss_token == '' then
 				if key_data.data.string then
-					wss_token = key_data.data.string
-					wss_user = key_data.meta.entity.uuid
+					if key_data.meta.target.uuid == contr_uuid then
+						wss_token = key_data.data.string
+						wss_user = key_data.meta.entity.uuid
+					end
 				end
 			end
 		end
@@ -1370,10 +1402,14 @@ debug("MessageHandler "..tostring(opcode)..", "..tostring(data))
 
 	-- Non-blocking Read from Hub. Responses will be handled by MessageHandler
 	local function Receive()
+		if connectionsStatus ~= STAT.CONNECTING and connectionsStatus ~= STAT.CONNECTED then
+			debug("No connection when trying to call Receive()")
+			return false, "No connection"
+		end
 		return luaws.wsreceive(wsconn)
 	end
 
-	-- Send ping to Hub. Should be done every 30 seconds to keep conneciton open.
+	-- Send ping to Hub.
 	local function Ping()
 		return luaws.wssend(wsconn, 0x09, "")
 	end
@@ -1426,14 +1462,67 @@ debug("MessageHandler "..tostring(opcode)..", "..tostring(data))
 		return connectionsStatus
 	end
 	
+	-- See if we can make use of openLuup.scheduler. However, this maybe needs to be done in luaws module.
+	local function StartPoller()
+		local R1NAME = "Ezlo_Async_WebSocket_Reciever"
+		local RCNAME = "Ezlo_Async_WebSocket_Reconnect"
+		local POLL_RATE = 1
+    
+		local function check_for_data ()
+			if connectionsStatus ~= STAT.CONNECTING and connectionsStatus ~= STAT.CONNECTED then
+				luup.log("No connection checking for data",2)
+				return
+			end
+			local lp_ts = luaws.wslastping(wsconn)
+			local res, more, nb = nil, nil, nil
+			if os.difftime(os.time(), lp_ts) > 90 then
+				debug("No ping received for "..os.difftime(os.time(), lp_ts).." seconds")
+			else
+				res, more, nb = pcall(luaws.wsreceive, wsconn)
+				-- Get data, if more is true, immediately read next chunk.
+				while res and more do
+					debug(R1NAME .. ", More chunks to receive")
+					res, more, nb = pcall(luaws.wsreceive, wsconn)
+				end
+				if not res then
+					luup.log(R1NAME .. ". Error receiving data from Hub, "..tostring(more or ""), 2)
+				end
+			end	
+			-- If more is nil the connection to the Hub is lost. Close and retry.
+			if more == nil then
+				luup.log(R1NAME .. "Lost connection to Hub, "..tostring(nb or "").." Try reconnect in "..reconnectRetryInterval, 2)
+				Close()
+				luup.call_delay(RCNAME, reconnectRetryInterval, "1")
+			else
+				-- See if we need to send a command to check House mode.
+				if pingCommand then
+					if pingCounter >= 20 then
+						Send(pingCommand)
+						pingCounter = 0
+					else
+						pingCounter = pingCounter + 1
+					end
+				end
+				luup.call_delay (R1NAME, POLL_RATE, '')
+			end	
+		end
+
+		_G[R1NAME] = check_for_data
+		_G[RCNAME] = Reconnect
+		check_for_data()
+		return true
+	end
+
 	-- Reconnect to Hub, with up to five retries.
-	local function Reconnect(retry)
+	function Reconnect(retry)
 		local retry = tonumber(retry) or 1
 		debug("Try to Reconnect, attempt "..retry)
 		if retry < maxReconnectRetries then
 			local res, msg = Connect(hubIp, wssToken, wssUser)
 			if res then
+				-- Connected again, resume polling.
 				debug("Connection reopened, login")
+				StartPoller()
 			else
 				local RCNAME = "Ezlo_Async_WebSocket_Reconnect" -- Is this function
 				debug("Could not reconnect, retrying in "..reconnectRetryInterval.." seconds")
@@ -1445,52 +1534,6 @@ debug("MessageHandler "..tostring(opcode)..", "..tostring(data))
 		end
 	end
 	
-	-- See if we can make use of openLuup.scheduler. However, this maybe needs to be done in luaws module.
-	local function StartPoller()
-		local R1NAME = "Ezlo_Async_WebSocket_Reciever"
-		local RCNAME = "Ezlo_Async_WebSocket_Reconnect"
-		local POLL_RATE = 1
-    
-		local function check_for_data ()
-			-- Get data, if more is true, immediately read next chunk.
-			local res, more, nb = pcall(luaws.wsreceive, wsconn)
-			while res and more do
-				debug(R1NAME .. ", More chunks to receive")
-				res, more, nb = pcall(luaws.wsreceive, wsconn)
-			end
-			if not res then
-				luup.log(R1NAME .. ". Error receiving data from Hub, "..tostring(more or ""), 2)
-			end
-			-- If more is nil the connection to the Hub is lost. Close and retry.
-			if more == nil then
-				luup.log(R1NAME .. "Lost connection to Hub, "..tostring(nb or "").." Try reconnect in "..reconnectRetryInterval, 2)
-				Close()
-				luup.call_delay(RCNAME, reconnectRetryInterval, "1")
-			else
-				-- See if we need to send a ping. Only after 30 secs of no data
---[[ Seems hub is sending ping commands, so we reply with pong it is ok.
-				pingCounter = pingCounter + 1
-				if pingCounter >= 30 then
-					pingCounter = 0
-					if pingCommand then
-						debug("Send command as ping.")
-						Send(pingCommand)
-					else
-						debug("Send ws ping.")
-						Ping()
-					end	
-				end
-]]
-				luup.call_delay (R1NAME, POLL_RATE, '')
-			end	
-		end
-
-		_G[R1NAME] = check_for_data
-		_G[RCNAME] = Reconnect
-		check_for_data()
-		return true
-	end
-
 	-- If a ping command string is set then that is send rather than a ping command
 	-- Userfull for Athom that does not like ping, or getting the house mode.
 	local function SetPingCommand(cmd)
@@ -2251,8 +2294,13 @@ local function ErrorHandler(method, err, result)
 -- To-dos: 
 --		look for bad password and avoid login until uid or pwd or ip are changed
 --		look for expired token message
-		setVar ("DisplayLine1", "Unable to logon locally. Error "..(err.code or 0)..", "..(err.message or "??"), SID.altui)
-
+		setVar ("DisplayLine1", "Unable to login locally: "..(err.message or "??"), SID.altui)
+		if err.data == "user.login.badpassword" then
+			-- Erase stored data from new attempt.
+			setVar ("HubToken", "")
+			setVar ("WssToken", "")
+			setVar ("WssUserID", "")
+		end	
 		luup.log ("Hub login error, closing.", 2)
 		ezlo.Close()
 	else
@@ -2710,6 +2758,14 @@ function init (lul_device)
   luup.log (ABOUT.VERSION)
   
   devNo = lul_device
+  if luup.attr_get ("disabled", devNo) == "1" then
+	local status_msg = "Disabled in attributes."
+    luup.log (status_msg)
+	setVar ("DisplayLine1", status_msg, SID.altui)
+	luup.set_failure (0)                          -- say it's an authentication error
+	return false, status_msg, ABOUT.NAME
+  end
+
   ip = luup.attr_get ("ip", devNo)
   luup.log (ip)
   EzloData.is_ready = false		-- Flag not to process incoming UI.broadcast or send messages until ready. I.e. Scenes & Devices created.
@@ -2780,6 +2836,7 @@ function init (lul_device)
     -- Ezlo specific variables needed at start up
     local UserID       = uiVar ("UserID", "")                -- UserID to logon to portal for this Ezlo
     local Password     = uiVar ("Password", "")              -- Password
+    local Serial       = uiVar ("HubSerial", "")             -- Ezlo Serial #
     local HubToken     = uiVar ("HubToken", "")              -- Will hold Token after logon
     local TokenExpires = uiVar ("TokenExpires", "0")         -- Will hold Token expiration timestamp
     local WssUserID    = uiVar ("WssUserID", "")             -- Will hold wss userID after logon     
@@ -2788,7 +2845,7 @@ function init (lul_device)
 	EzloHubUserID = UserID
 	
 	-- Make sure we have user credentials and Hub IP
-	if UserID ~= "" and Password ~= "" and ip ~= "" then
+	if UserID ~= "" and Password ~= "" and Serial ~= "" and ip ~= "" then
 		-- Logon to Ezlo hub and kick off messaging
 		setVar ("DisplayLine1", "Connecting to Ezlo Hub...", SID.altui)
 		-- Register incoming message handlers
@@ -2807,7 +2864,7 @@ function init (lul_device)
 		if WssToken == '' or WssUserID == '' or TokenExpires == 0 then
 			setVar ("DisplayLine2", "Getting tokens from Ezlo Portal", SID.altui)
 			local stat
-			stat, WssToken, WssUserID, TokenExpires = ezlo.PortalLogin (UserID, Password)
+			stat, WssToken, WssUserID, TokenExpires = ezlo.PortalLogin (UserID, Password, Serial)
 			if not stat then
 				luup.log ("Unable to logon to portal "..WssToken, 3)
 				status_msg = "Unable to logon to Ezlo portal"
