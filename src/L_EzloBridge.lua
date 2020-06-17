@@ -1,11 +1,11 @@
 ABOUT = {
   NAME          = "EzloBridge",
-  VERSION       = "2020.06.06b",
+  VERSION       = "2020.06.17b",
   DESCRIPTION   = "EzloBridge plugin for openLuup",
   AUTHOR        = "@reneboer",
   COPYRIGHT     = "(c) 2013-2020 AKBooer and reneboer",
   DOCUMENTATION = "https://github.com/akbooer/openLuup/tree/master/Documentation",
-  DEBUG         = true,
+  DEBUG         = false,
   LICENSE       = [[
   Copyright 2013-2020 AK Booer, Rene Boer
 
@@ -75,13 +75,11 @@ local userdata  = require "openLuup.userdata"
 
 local ip                          -- remote machine ip address
 
--- these parameters are global, so can be externally access
-POLL_DELAY = 5              -- number of seconds between remote polls
-POLL_MINIMUM = 0.5          -- minimum delay (s) for async polling
-POLL_MAXIMUM = 30           -- maximum delay (s) ditto
-
-POLL_ERRORS = 0
-POLL_TIMEOUTS = 0
+--POLL_DELAY = 5              -- number of seconds between remote polls
+--POLL_MINIMUM = 0.5          -- minimum delay (s) for async polling
+--POLL_MAXIMUM = 30           -- maximum delay (s) ditto
+--POLL_ERRORS = 0
+--POLL_TIMEOUTS = 0
 
 local local_room_index           -- bi-directional index of our rooms
 local remote_room_index          -- bi-directional of remote rooms
@@ -97,7 +95,7 @@ local RemotePort                  -- port to access remote machine
 local EzloData = {}		-- to store Vera /data_request?id=user_data2 like structure as input for GetUserData
 								-- we keep this for all processing & mapping
 --local AsyncPoll, AsyncTimeout     -- asynchronous polling
-local CheckAllEveryNth            -- periodic status request for all variables
+local CheckAllEveryNth            -- periodic status request for all variables (to implement)
 
 local SID = {
 	altui			= "urn:upnp-org:serviceId:altui1"  ,         -- Variables = 'DisplayLine1' and 'DisplayLine2'
@@ -1396,7 +1394,7 @@ debug("MessageHandler "..tostring(opcode)..", "..tostring(data))
 		local params = "{}"
 		if data.params then params = dkjson.encode(data.params) end
 		local cmd = '{"method":"%s","id":"%s","params":%s}'
---debug("sending command : "..(cmd:format(data.method, id, params) or "fail"))
+debug("sending command : "..(cmd:format(data.method, id, params) or "fail"))
 		return luaws.wssend(wsconn, 0x01, cmd:format(data.method, id, params))
 	end
 
@@ -1416,14 +1414,18 @@ debug("MessageHandler "..tostring(opcode)..", "..tostring(data))
 
 	-- open web socket connection
 	local function Connect(controller_ip, wss_token, wss_user)
+debug("Connect. 0.... ")
 		wsconn, msg = luaws.wsopen('wss://' .. controller_ip .. ':' .. ezloPort, MessageHandler)
 		if wsconn == false then
+			debug("Could not open WebSocket. " .. tostring(msg or ""))
 			return false, "Could not open WebSocket. " .. tostring(msg or "")
 		end	
+debug("Connect. 1.... ")
 		connectionsStatus = STAT.CONNECTING
 		hubIp = controller_ip
 		wssToken = wss_token
 		wssUser = wss_user
+debug("Connect. 2.... ")
 		-- Send local login command
 		return Send({method="hub.offline.login.ui", params = {user = wss_user, token = wss_token}})
 	end	
@@ -2769,7 +2771,7 @@ function init (lul_device)
   ip = luup.attr_get ("ip", devNo)
   luup.log (ip)
   EzloData.is_ready = false		-- Flag not to process incoming UI.broadcast or send messages until ready. I.e. Scenes & Devices created.
-  ezlo.Initialize(false)
+  ezlo.Initialize(ABOUT.DEBUG)
   -------
   -- 2020.02.12 use existing Bridge offset, if defined.
   -- this way, it doesn't matter if other bridges get deleted, we keep the same value

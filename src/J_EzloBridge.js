@@ -43,9 +43,9 @@ var EzloBridge = (function (api) {
 //				htmlAddPulldown(deviceID, 'Only Zwave devices', 'ZWaveOnly', yesNo)+
 //				'</div>'+
 //				'<div id="'+DIV_PREFIX+deviceID+'div_system_ezlo" style="display: '+((curSystem === '17000')?'block':'none')+';" >'+
-				htmlAddInput(deviceID, 'Ezlo Hub Serial', 50, 'HubSerial')+
-				htmlAddInput(deviceID, 'Ezlo Hub User ID', 50, 'UserID')+
-				htmlAddPwdInput(deviceID, 'Ezlo Hub Password', 50, 'Password')+
+				htmlAddInput(deviceID, 'Ezlo Hub Serial', 20, 'HubSerial')+
+				htmlAddInput(deviceID, 'Ezlo Hub User ID', 20, 'UserID')+
+				htmlAddPwdInput(deviceID, 'Ezlo Hub Password', 20, 'Password')+
 //				'</div>'+
 				htmlAddPulldown(deviceID, 'House Mode Mirroring', 'HouseModeMirror', hmmList)+
 				htmlAddPulldown(deviceID, 'Bridge Scenes', 'BridgeScenes', yesNo)+

@@ -1,6 +1,28 @@
---[[
-	luws.lua - Luup WebSocket implemented (for Vera Luup and openLuup systems)
+ABOUT = {
+  NAME          = "LuupWebSocket",
+  VERSION       = "20142",
+  DESCRIPTION   = "Luup WebSocket for openLuup",
+  AUTHOR        = "@rigpapa",
+  COPYRIGHT     = "(c) 2020 rigpapa and reneboer",
+  DEBUG         = false,
+  LICENSE       = [[
 	Copyright 2020 Patrick H. Rigney, All Rights Reserved. http://www.toggledbits.com/
+
+  Licensed under the Apache License, Version 2.0 (the "License");
+  you may not use this file except in compliance with the License.
+  You may obtain a copy of the License at
+
+       http://www.apache.org/licenses/LICENSE-2.0
+
+  Unless required by applicable law or agreed to in writing, software
+  distributed under the License is distributed on an "AS IS" BASIS,
+  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+  See the License for the specific language governing permissions and
+  limitations under the License.
+
+	luarocks install luasocket --server https://luarocks.org/dev  (makes no difference)
+
+	luws.lua - Luup WebSocket implemented (for Vera Luup and openLuup systems)
 	Works best with SockProxy installed.
 	Ref: RFC6455
 
@@ -11,21 +33,16 @@ RB: 	fix for messages larger than 256 bytes.
 	removed chat option from negotiate.
 	fix for fragmented packages
 	added wslastping function to look for timeouts
-
---]]
+]]
+}
 --luacheck: std lua51,module,read globals luup,ignore 542 611 612 614 111/_,no max line length
 
 --module("luws", package.seeall)
-
-_VERSION = 20142
-
-debug_mode = false
 
 local math = require "math"
 local string = require "string"
 local socket = require "socket"
 local bit = require "bit"
--- local ltn12 = require "ltn12"
 
 -- local WSGUID = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11"
 local STATE_START = "start"
@@ -45,7 +62,7 @@ local timenow = socket.gettime or os.time -- use hi-res time if available
 local unpack = unpack or table.unpack -- luacheck: ignore 143
 local LOG = luup.log or ( function(msg,level) print(level or 50,msg) end )
 
-function dump(t, seen)
+local function dump(t, seen)
 	if t == nil then return "nil" end
 	if seen == nil then seen = {} end
 	local sep = ""
@@ -99,7 +116,7 @@ local function L(msg, ...) -- luacheck: ignore 212
 	LOG(str, level)
 end
 
-local function D(msg, ...) if debug_mode then L( { msg=msg, prefix="luws[debug]: " }, ... ) end end
+local function D(msg, ...) if ABOUT.DEBUG then L( { msg=msg, prefix="luws[debug]: " }, ... ) end end
 
 local function default( val, dflt ) return ( val == nil ) and dflt or val end
 
@@ -182,7 +199,8 @@ local function connect( ip, port )
 	return nil, string.format("Connection to %s:%s failed: %s", ip, port, tostring(e))
 end
 
-function wsopen( url, handler, options )
+local function wsopen( url, handler, options )
+	
 	D("wsopen(%1)", url)
 	options = options or {}
 	options.receive_timeout = default( options.receive_timeout, DEFAULTMSGTIMEOUT )
@@ -220,11 +238,15 @@ function wsopen( url, handler, options )
 	-- This call is async -- it returns immediately.
 	--??? options.create? for extensible socket creation?
 	local sock,err = options.connect( ip, port )
+D("wsopen(1)")
 	if not sock then
 		return false, err
 	end
 	wsconn.socket = sock
 	wsconn.socket:setoption( 'keepalive', true )
+	wsconn.socket:settimeout( 10, "b" )	-- Avoid hang on connect sequence.
+	wsconn.socket:settimeout( 10, "t" )
+D("wsopen(2)")
 	if proto == "wss" then
 		local ssl = require "ssl"
 		local opts = {
@@ -234,17 +256,24 @@ function wsopen( url, handler, options )
 			options=split( options.ssl_options, 'all' )
 		}
 		sock = ssl.wrap( wsconn.socket, opts )
-		if sock and sock:dohandshake() then
+D("wsopen(2.1)")
+		if sock then
+D("wsopen(2.1.1) Hangs here at dohandshake for Athom")
+			socket.try(sock:dohandshake())
+D("wsopen(2.1.2) Hangs here at dohandshake for Athom")
 			D("wsopen() successful SSL/TLS negotiation")
 			wsconn.socket = sock -- save wrapped socket
 		else
+D("wsopen(2.2)")
 			wsconn.socket:close()
 			wsconn.socket = nil
 			return false, "Failed SSL negotation"
 		end
+D("wsopen(2.3)")
 	end
 	D("wsopen() upgrading connection to WebSocket")
 	st,err = wsupgrade( wsconn )
+D("wsopen(3)")
 	if st then
 		wsconn.connected = true
 		wsconn.lastMessage = timenow()
@@ -261,7 +290,7 @@ function wsopen( url, handler, options )
 end
 
 local function send_frame( wsconn, opcode, fin, s )
-	D("send_frame(%1,%2,%3,<%4 bytes>)", wsconn, opcode, fin, #s)
+--	D("send_frame(%1,%2,%3,<%4 bytes>)", wsconn, opcode, fin, #s)
 	local mask = wsconn.options.use_masking
 	local t = {}
 	local b = bit.bor( fin and 0x80 or 0, opcode )
@@ -284,7 +313,7 @@ local function send_frame( wsconn, opcode, fin, s )
 			mb[k] = math.random(0,255)
 			table.insert( t, string.char( mb[k] ) )
 		end
-		D("send_frame() mask bytes %1", string.format( "%02x %02x %02x %02x", mb[1], mb[2], mb[3], mb[4] ) )
+--		D("send_frame() mask bytes %1", string.format( "%02x %02x %02x %02x", mb[1], mb[2], mb[3], mb[4] ) )
 		-- Apply mask to data and append.
 		for k=1,#s do
 			table.insert( t, string.char( bit.bxor( string.byte( s, k ), mb[((k-1)%4)+1] ) ) )
@@ -295,7 +324,7 @@ local function send_frame( wsconn, opcode, fin, s )
 		frame = table.concat( t, "" ) .. s
 	end
 	t = nil -- luacheck: ignore 311
-	D("send_frame() sending frame of %1 bytes for %2", #frame, s)
+--	D("send_frame() sending frame of %1 bytes for %2", #frame, s)
 	wsconn.socket:settimeout( 5, "b" )
 	wsconn.socket:settimeout( 5, "r" )
 	-- ??? need retry while nb < payload length
@@ -310,8 +339,8 @@ end
 
 -- Send WebSocket message (opcode and payload). The payload can be an LTN12 source,
 -- in which case each chunk from the source is sent as a fragment.
-function wssend( wsconn, opcode, s )
-	D("wssend(%1,%2,%3)", wsconn, opcode, s)
+local function wssend( wsconn, opcode, s )
+--	D("wssend(%1,%2,%3)", wsconn, opcode, s)
 	if not wsconn.connected then return false, "not connected" end
 	if wsconn.closing then return false, "closing" end
 
@@ -353,7 +382,7 @@ function wssend( wsconn, opcode, s )
 end
 
 -- Disconnect websocket interface, if connected (safe to call any time)
-function wsclose( wsconn )
+local function wsclose( wsconn )
 	D("wsclose(%1)", wsconn)
 	if wsconn then
 		-- This is not in keeping with the RFC, but may be as good as we can reliably do.
@@ -372,7 +401,7 @@ end
 
 -- Handle a control frame. Caller is given option first.
 local function handle_control_frame( wsconn, opcode, data )
-	D("handle_control_frame(%1,%2,%3)", wsconn, opcode, data )
+--	D("handle_control_frame(%1,%2,%3)", wsconn, opcode, data )
 	if wsconn.options.control_handler and
 		false == wsconn.options.control_handler( wsconn, opcode, data, unpack(wsconn.options.handler_args or {}) ) then
 		-- If custom handler returns exactly boolean false, don't do default actions
@@ -409,7 +438,7 @@ local function wshandlefragment( fin, op, data, wsconn )
 			return
 		elseif (wsconn.msg or "") == "" then
 			-- Control frame or FIN on first packet, handle immediately, no copy/buffering
-			D("wshandlefragment() fast dispatch %1 byte message for op %2", #data, op)
+--			D("wshandlefragment() fast dispatch %1 byte message for op %2", #data, op)
 			return pcall( wsconn.msghandler, wsconn, op, data,
 				unpack(wsconn.options.handler_args or {}) )
 		end
@@ -421,11 +450,10 @@ local function wshandlefragment( fin, op, data, wsconn )
 		-- Append to buffer and send message
 		local maxn = math.max( 0, wsconn.options.max_payload_size - #wsconn.msg )
 		if maxn < #data then
-			D("wshandlefragment() buffer overflow, have %1, incoming %2, max %3; message truncated.",
-				#wsconn.msg, #data, wsconn.options.max_payload_size)
+			D("wshandlefragment() buffer overflow, have %1, incoming %2, max %3; message truncated.", #wsconn.msg, #data, wsconn.options.max_payload_size)
 		end
 		if maxn > 0 then wsconn.msg = wsconn.msg .. data:sub(1, maxn) end
-		D("wshandlefragment() dispatch %2 byte message for op %1", wsconn.msgop, #wsconn.msg)
+--		D("wshandlefragment() dispatch %2 byte message for op %1", wsconn.msgop, #wsconn.msg)
 		wsconn.lastMessage = timenow()
 		pcall( wsconn.msghandler, wsconn, wsconn.msgop, wsconn.msg,
 			unpack(wsconn.options.handler_args or {}) )
@@ -440,12 +468,12 @@ local function wshandlefragment( fin, op, data, wsconn )
 		else
 			-- D("wshandlefragment() no fin, additional fragment")
 			-- RFC6455 requires op on continuations to be 0.
-			if op ~= 0 then return pcall( wsconn.msghandler, wsconn, false,
-				"ws continuation error", unpack(wsconn.options.handler_args or {}) ) end
+			if op ~= 0 then 
+				return pcall( wsconn.msghandler, wsconn, false,	"ws continuation error", unpack(wsconn.options.handler_args or {}) ) 
+			end
 			local maxn = math.max( 0, wsconn.options.max_payload_size - #wsconn.msg )
 			if maxn < #data then
-				L("wshandlefragment() buffer overflow, have %1, incoming %2, max %3; message truncated",
-					#wsconn.msg, #data, wsconn.options.max_payload_size)
+				L("wshandlefragment() buffer overflow, have %1, incoming %2, max %3; message truncated", #wsconn.msg, #data, wsconn.options.max_payload_size)
 			end
 			if maxn > 0 then wsconn.msg = wsconn.msg .. data:sub(1, maxn) end
 		end
@@ -467,8 +495,8 @@ end
 -- Handle a block of data. The block does not need to contain an entire message
 -- (or fragment). A series of blocks as small as one byte can be passed and the
 -- message accumulated properly within the protocol.
-function wshandleincoming( data, wsconn )
-	D("wshandleincoming(<%1 bytes>,%2) in state %3", #data, wsconn, wsconn.readstate)
+local function wshandleincoming( data, wsconn )
+--	D("wshandleincoming(<%1 bytes>,%2) in state %3", #data, wsconn, wsconn.readstate)
 	local state = wsconn
 	local ix = 1
 	while ix <= #data do
@@ -482,10 +510,10 @@ function wshandleincoming( data, wsconn )
 			-- D("wshandleincoming() nlast is %1, length accepting %2", nlast, nlast-ix+1)
 			table.insert( state.frag, data:sub( ix, nlast ) )
 			state.flen = state.flen - ( nlast - ix + 1 )
-			if debug_mode and state.flen % 500 == 0 then D("wshandleincoming() accepted, now %1 bytes to go", state.flen) end
+			if ABOUT.DEBUG and state.flen % 500 == 0 then D("wshandleincoming() accepted, now %1 bytes to go", state.flen) end
 			if state.flen <= 0 then
 				local delta = math.max( timenow() - state.start, 0.001 )
-				D("wshandleincoming() message received, %1 bytes in %2 secs, %3 bytes/sec, %4 chunks", state.size, delta, state.size / delta, #state.frag)
+--				D("wshandleincoming() message received, %1 bytes in %2 secs, %3 bytes/sec, %4 chunks", state.size, delta, state.size / delta, #state.frag)
 				local f = state.masked and unmask( state.frag, state.mask ) or table.concat( state.frag, "" )
 				state.frag = nil -- gc eligible
 				state.readstate = STATE_START -- ready for next frame
@@ -493,7 +521,7 @@ function wshandleincoming( data, wsconn )
 			end
 			ix = nlast
 		elseif state.readstate == STATE_START then
-			D("wshandleincoming() start at %1 byte %2", ix, string.format("%02X", b))
+--			D("wshandleincoming() start at %1 byte %2", ix, string.format("%02X", b))
 			state.fin = bit.band( b, 128 ) > 0
 			state.opcode = bit.band( b, 15 )
 			state.flen = 0 -- remaining data bytes to receive
@@ -504,7 +532,7 @@ function wshandleincoming( data, wsconn )
 			state.frag = {}
 			state.readstate = STATE_READLEN1
 			state.start = timenow()
-			D("wshandleincoming() start of frame, opcode %1 fin %2", state.opcode, state.fin)
+--			D("wshandleincoming() start of frame, opcode %1 fin %2", state.opcode, state.fin)
 		elseif state.readstate == STATE_READLEN1 then
 			state.masked = bit.band( b, 128 ) > 0
 			state.flen = bit.band( b, 127 )
@@ -555,13 +583,13 @@ function wshandleincoming( data, wsconn )
 		end
 		ix = ix + 1
 	end
-	D("wshandleincoming() ending state is %1", state.readstate)
+--	D("wshandleincoming() ending state is %1", state.readstate)
 end
 
 -- Receiver task. Use non-blocking read. Returns nil,err on error, otherwise true/false is the
 -- receiver believes there may immediately be more data to process.
-function wsreceive( wsconn )
-	D("wsreceive(%1)", wsconn)
+local function wsreceive( wsconn )
+--	D("wsreceive(%1)", wsconn)
 	if not wsconn.connected then return end
 	wsconn.socket:settimeout( 0, "b" )
 	wsconn.socket:settimeout( 0, "r" )
@@ -573,23 +601,20 @@ function wsreceive( wsconn )
 	if nb == nil then
 		if err == "timeout" or err == "wantread" then
 			if bb and #bb > 0 then
-				D("wsreceive() %1; handling partial result %2 bytes", err, #bb)
+--				D("wsreceive() %1; handling partial result %2 bytes", err, #bb)
 				wshandleincoming( bb, wsconn )
 				return false, #bb -- timeout, say no more data
-			elseif wsconn.options.receive_timeout > 0 and
-				( timenow() - wsconn.lastMessage ) > wsconn.options.receive_timeout then
-				pcall( wsconn.msghandler, wsconn, false, "message timeout",
-					unpack(wsconn.options.handler_args or {}) )
+			elseif wsconn.options.receive_timeout > 0 and (timenow() - wsconn.lastMessage) > wsconn.options.receive_timeout then
+				pcall( wsconn.msghandler, wsconn, false, "message timeout", unpack(wsconn.options.handler_args or {}))
 				return nil, "message timeout"
 			end
 			return false, 0 -- not error, no data was handled
 		end
 		-- ??? error
-		pcall( wsconn.msghandler, wsconn, false, "receiver error: "..err,
-			unpack(wsconn.options.handler_args or {}) )
+		pcall( wsconn.msghandler, wsconn, false, "receiver error: "..err, unpack(wsconn.options.handler_args or {}) )
 		return nil, err
 	end
-	D("wsreceive() handling %1 bytes", #nb)
+--	D("wsreceive() handling %1 bytes", #nb)
 	if #nb > 0 then
 		wshandleincoming( nb, wsconn )
 	end
@@ -597,7 +622,7 @@ function wsreceive( wsconn )
 end
 
 -- Reset receiver state. Brutal resync; may or may be usable, but worth having the option.
-function wsreset( wsconn )
+local function wsreset( wsconn )
 	D("wsreset(%1)", wsconn)
 	if wsconn then
 		wsconn.msg = nil -- gc eligible
@@ -606,18 +631,18 @@ function wsreset( wsconn )
 	end
 end
 
-function wslastping(wsconn)
+local function wslastping(wsconn)
 --	D("wslastping(%1)", wsconn)
 	if not wsconn.lastping_ts then wsconn.lastping_ts = timenow() end
 	return wsconn.lastping_ts
 end
 
-function init(dgb)
-	debug_mode = dgb or false
+local function init(dgb)
+	ABOUT.DEBUG = dgb or false
 end
 
 return {
-	_VERSION = _VERSION,
+	ABOUT = ABOUT,
 	wsopen = wsopen,
 	wssend = wssend,
 	wsreceive = wsreceive,
