@@ -1310,7 +1310,7 @@ debug(table.concat(result))
 			["accept"] = "application/json",
 			["content-type"] = "application/json; charset=UTF-8"
 		}
-		local SHA1pwd = sha1(user_id..password..Ezlo_MMS_salt)
+		local SHA1pwd = sha1(string.lower(user_id)..password..Ezlo_MMS_salt)
 debug("sha pwd "..SHA1pwd)
 		local stat, cde, response, msg = https_request("GET", authentication_url:format(user_id,SHA1pwd), request_headers)
 		if not stat then
