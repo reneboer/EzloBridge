@@ -1,5 +1,5 @@
 {
-  "default_icon": "http://raw.githubusercontent.com/akbooer/openLuup/master/icons/VeraBridge.png",
+  "default_icon": "http://raw.githubusercontent.com/reneboer/EzloBridge/master/icon/EzloBridge.png",
   "inScene": "1",
   "ToggleButton": 1,
   "Tabs": [ 
