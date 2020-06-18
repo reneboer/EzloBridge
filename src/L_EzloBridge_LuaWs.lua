@@ -238,7 +238,6 @@ local function wsopen( url, handler, options )
 	-- This call is async -- it returns immediately.
 	--??? options.create? for extensible socket creation?
 	local sock,err = options.connect( ip, port )
-D("wsopen(1)")
 	if not sock then
 		return false, err
 	end
@@ -246,34 +245,28 @@ D("wsopen(1)")
 	wsconn.socket:setoption( 'keepalive', true )
 	wsconn.socket:settimeout( 10, "b" )	-- Avoid hang on connect sequence.
 	wsconn.socket:settimeout( 10, "t" )
-D("wsopen(2)")
 	if proto == "wss" then
 		local ssl = require "ssl"
 		local opts = {
 			mode=default( options.ssl_mode, 'client' ),
 			protocol=default( options.ssl_protocol, 'any' ),
 			verify=default( options.ssl_verify, 'none' ),
-			options=split( options.ssl_options, 'all' )
+			options=split( options.ssl_options, 'all,no_sslv2,no_sslv3' )  -- options instead of just all?
 		}
 		sock = ssl.wrap( wsconn.socket, opts )
-D("wsopen(2.1)")
-		if sock then
 D("wsopen(2.1.1) Hangs here at dohandshake for Athom")
-			socket.try(sock:dohandshake())
+		if sock and sock:dohandshake() then
 D("wsopen(2.1.2) Hangs here at dohandshake for Athom")
 			D("wsopen() successful SSL/TLS negotiation")
 			wsconn.socket = sock -- save wrapped socket
 		else
-D("wsopen(2.2)")
 			wsconn.socket:close()
 			wsconn.socket = nil
 			return false, "Failed SSL negotation"
 		end
-D("wsopen(2.3)")
 	end
 	D("wsopen() upgrading connection to WebSocket")
 	st,err = wsupgrade( wsconn )
-D("wsopen(3)")
 	if st then
 		wsconn.connected = true
 		wsconn.lastMessage = timenow()

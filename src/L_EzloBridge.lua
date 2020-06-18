@@ -1,6 +1,6 @@
 ABOUT = {
   NAME          = "EzloBridge",
-  VERSION       = "2020.06.17b",
+  VERSION       = "2020.06.18b",
   DESCRIPTION   = "EzloBridge plugin for openLuup",
   AUTHOR        = "@reneboer",
   COPYRIGHT     = "(c) 2013-2020 AKBooer and reneboer",
@@ -1264,12 +1264,14 @@ debug("MessageHandler "..tostring(opcode)..", "..tostring(data))
 	-- Logon to Ezlo portal and return 
 	local function PortalLogin(user_id, password, serial)
 		local Ezlo_MMS_salt = "oZ7QE6LcLJp6fiWzdqZc"
-		local authentication_url = "https://vera-us-oem-autha11.mios.com/autha/auth/username/%s?SHA1Password=%s&PK_Oem=1&TokenVersion=2"
+--		local authentication_url = "https://vera-us-oem-autha11.mios.com/autha/auth/username/%s?SHA1Password=%s&PK_Oem=1&TokenVersion=2"
+		local authentication_url = "https://iris.dev.getvera.com:3030/autha/auth/username/%s?SHA1Password=%s&PK_Oem=1&TokenVersion=2"
 		local get_token_url = "https://cloud.ezlo.com/mca-router/token/exchange/legacy-to-cloud/"
 		local sync_token_url = "https://api-cloud.ezlo.com/v1/request"
 
 		-- Do https request. For json requests and response data only.
 		local function https_request(mthd, strURL, headers, PostData)
+debug("URL "..strURL)
 			local result = {}
 			local request_body = nil
 			if PostData then
@@ -1292,7 +1294,7 @@ debug("MessageHandler "..tostring(opcode)..", "..tostring(data))
 				if cde ~= 200 then
 					return false, cde, nil, stts
 				else
---debug(table.concat(result))		
+debug(table.concat(result))		
 					return true, cde, json.decode(table.concat(result)), "OK"
 				end
 			else
@@ -1309,9 +1311,10 @@ debug("MessageHandler "..tostring(opcode)..", "..tostring(data))
 			["content-type"] = "application/json; charset=UTF-8"
 		}
 		local SHA1pwd = sha1(user_id..password..Ezlo_MMS_salt)
+debug("sha pwd "..SHA1pwd)
 		local stat, cde, response, msg = https_request("GET", authentication_url:format(user_id,SHA1pwd), request_headers)
 		if not stat then
-			return false, "Could not logon to portal. "..tostring(cde or 0)..", "..tostring(msg or "")
+			return false, "Could not login to portal. "..tostring(cde or 0)..", "..tostring(msg or "")
 		end	
 		local MMSAuth = response.Identity
 		local MMSAuthSig = response.IdentitySignature
