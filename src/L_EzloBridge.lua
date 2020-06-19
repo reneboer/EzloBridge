@@ -1,6 +1,6 @@
 ABOUT = {
   NAME          = "EzloBridge",
-  VERSION       = "2020.06.18b",
+  VERSION       = "2020.06.19b",
   DESCRIPTION   = "EzloBridge plugin for openLuup",
   AUTHOR        = "@reneboer",
   COPYRIGHT     = "(c) 2013-2020 AKBooer and reneboer",
@@ -2278,9 +2278,11 @@ local function mapItem(eitem)
 			}
 		]]
 		local w,d,r,g,b=0,0,0,0,0
-		r = eitem.value.red
-		g = eitem.value.green
-		b = eitem.value.blue
+		if eitem.value then	-- value can be null.
+			r = eitem.value.red
+			g = eitem.value.green
+			b = eitem.value.blue
+		end	
 		value = string.format("0=%s,1=%s,2=%s,3=%s,4=%s",w,d,r,g,b)
 	elseif type(eitem.value) == "table" then
 		value = "??table??"
