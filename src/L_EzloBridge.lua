@@ -2278,7 +2278,7 @@ local function mapItem(eitem)
 			}
 		]]
 		local w,d,r,g,b=0,0,0,0,0
-		if eitem.value then	-- value can be null.
+		if type(eitem.value) == "table" then	-- value can be null.
 			r = eitem.value.red
 			g = eitem.value.green
 			b = eitem.value.blue
