@@ -1,11 +1,11 @@
 ABOUT = {
   NAME          = "EzloBridge",
-  VERSION       = "2020.06.19b",
+  VERSION       = "2020.06.23b",
   DESCRIPTION   = "EzloBridge plugin for openLuup",
   AUTHOR        = "@reneboer",
   COPYRIGHT     = "(c) 2013-2020 AKBooer and reneboer",
   DOCUMENTATION = "https://github.com/akbooer/openLuup/tree/master/Documentation",
-  DEBUG         = false,
+  DEBUG         = true,
   LICENSE       = [[
   Copyright 2013-2020 AK Booer, Rene Boer
 
@@ -31,12 +31,16 @@ ABOUT = {
 
 -- 2020-05-30   Using VeraBridge 2020.04.30
 -- 2020.06.06b	Implement Ezlo as Hub to bridge
+-- 2020.06.23b	Added manufacturer and model if availble from Ezlo.
+--				Updated HVAC operations
+--				Setup child devices corectly by having parent ID.
 
 -- To do's: 
 -- 		better reconnect handler to deal with expired token (did not have it expire yet to test).
 --		command queue during lost connection.
---		better support of HVAC and locks
+--		better support of locks
 --		Make it work on Vera
+--		Look at reachable status and show that on ALTUI
 --		Handle device removed or added (restart connection)
 --[[
 This is what the app is sending for each time the list is refreshed (and that is often)
@@ -61,6 +65,9 @@ wait 10 seconds, before restart, configure auto restart on change.
   "event":"include_finished",
   "plugin":"zwave"
 }
+
+{"id":"e62e13a0-849e-11ea-ab2d-b7c43c5254eb","method":"cloud.controller_abstracts_list","api":"1","params":{"version":-1}}
+
 ]]
 
 local devNo                      -- our device number
@@ -636,47 +643,84 @@ local EzloItemsMapping = {
 	temp = {service = SID.temp_sensor, variable = "CurrentTemperature"}, 
 	temperature_changes = {service = SID.gen_sensor, variable = "CurrentLevel"}, 
 	test_state = {service = SID.gen_sensor, variable = "CurrentLevel"}, 
-	thermostat_fan_mode = {service = SID.hvac_fom, variable = "Mode", convert=function(value) -- number 0 - 10
-			if value == 0  or value == 2  or value == 4 then
+	thermostat_fan_mode = {service = SID.hvac_fom, variable = "Mode", convert=function(value, devID) 
+			-- from Centralite_3157100: "fanmode_on", "fanmode_on_auto" ?
+			-- Ezlo thermostat_fan_mode Enums (get/set): 
+			-- "auto_low", "low", "auto_high", "high", "auto_medium", "medium", "circulation", "humidity_circulation", "left_and_right"
+			-- "up_and_down", "quiet"
+			-- Vera Mode allowedValues :
+			--	"Auto", "ContinuousOn", "PeriodicOn"
+			-- Should low/med/high values be mapped to Vera fanSpeed (0-100)?
+			if value == "auto_low" or value == "auto_high" or value == "auto_medium" or value == "fanmode_on_auto" then
 				return "Auto"
-			elseif value == 1  or value == 3  or value == 5 then
+			elseif value == "low"  or value == "high"  or value == "medium" or value == "fanmode_on" then
 				return "ContinuousOn"
 			elseif value == 99 then	
 				return "PeriodicOn" -- Does not seem supported on Ezlo
 			end
+			-- There are more options, Vera does not seem to support.
 			return "Auto"
 		end}, 
-	thermostat_fan_state = {service = SID.hvac_fom, variable = "FanStatus", convert=function(value) -- number 0 - 8
-			if value == 0 then
+	thermostat_fan_state = {service = SID.hvac_fom, variable = "FanStatus", convert=function(value, devID)
+			-- Ezlo thermostat_fan_state Enums (get): 
+			-- "idle_off", "running_low", "running_high", "running_medium", "circulation_mode", "humidity_circulation_mode"
+			-- "right_left_circulation_mode", "up_down_circulation_mode", "quiet_circulation_mode"
+			-- Vera FanStatus allowedValues :
+			--	"On", "Off"
+			-- Should low/med/high values be mapped to Vera fanSpeed (0-100)?
+			if value == "idle_off" then
 				return "Off"
 			else
 				return "On" -- Not fully functional. Would need to look at FanSpeedStatus as well
 			end	
 		end},
-	thermostat_mode = {service = SID.hvac_uom, variable = "ModeStatus", convert=function(value) -- Assuming number, not description
-			-- Is in EnergySavingsMode if value is 11 or 12
-			if value == 0 then
+	thermostat_mode = {service = SID.hvac_uom, variable = "ModeStatus", convert=function(value, devID)
+			-- Ezlo thermostat_mode Enums (get/set): 
+			--	"off", "heat", "cool", "aux", "resume", "fan_only", "furnace", "dry_air", "moist_air", "auto_change_over", 
+			--	"energy_saving_heat", "energy_saving_cool", "away", "reserved", "full_power"
+			-- Vera ModeStatus allowedValues :
+			--	"Off", "HeatOn", "CoolOn", "AutoChangeOver", "AuxHeatOn", "EconomyHeatOn", "EmergencyHeatOn", "AuxCoolOn"
+			-- 	"EconomyCoolOn", "BuildingProtection", "EnergySavingsMode"
+			-- Vera EnergyModeTarget allowed values:
+			--	"Normal", "EnergySavingsMode"
+			if value == "off" then
 				return "Off"
-			elseif value == 1 or value == 11 then
+			elseif value == "heat" then
 				return "HeatOn"
-			elseif value == 2 or value == 12 then
+			elseif value == "energy_saving_heat" then
+				return "EconomyHeatOn"
+			elseif value == "cool" then
 				return "CoolOn"
-			elseif value == 3 or value == 10 then
+			elseif value == "energy_saving_cool" then
+				return "EconomyCoolOn"
+			elseif value == "auto_change_over" or value == "auto" then
 				return "AutoChangeOver"
 			end
-			-- Have numbers 4-15 as well
+			-- There are more options, Vera does not seem to support.
 			return "Off"
 		end}, 
-	thermostat_operating_state = {service = SID.hvac_os, variable = "ModeState", convert=function(value) 
+	thermostat_operating_state = {service = SID.hvac_os, variable = "ModeState", convert=function(value, devID) 
+			-- Ezlo thermostat_operating_state (get) Enums: 
+			--	"idle", "heating", "cooling", "fan_only", "pending_heat", "pending_cool", "vent_economizer", "aux_heating"
+			--	"2nd_stage_heating", "2nd_stage_cooling", "2nd_stage_aux_heat", "3rd_stage_aux_heat"
+			-- Vera ModeStatus Allowed values:
+			--	"Idle", "Heating", "Cooling", "FanOnly", "PendingHeat", "PendingCool", "Vent"
 			if value == "idle" then
 				return "Idle"
-			elseif value == "heating" then
+			elseif value == "fan_only" then
+				return "FanOnly"
+			elseif value == "pending_heat" then
+				return "PendingHeat"
+			elseif value == "pending_cool" then
+				return "PendingCool"
+			elseif value == "vent_economizer" then
+				return "Vent"
+			elseif value == "heating" or value == "2nd_stage_heating" or value == "aux_heating" or value == "2nd_stage_aux_heat" or value == "3rd_stage_aux_heat" then
 				return "Heating"
-			elseif value == "cooling" then
+			elseif value == "cooling" or value == "2nd_stage_cooling" then
 				return "Cooling"
 			end
-			-- Also has fan_only
-			return value
+			return "Idle"
 		end},
 	thermostat_setpoint = {service = SID.temp_setp, variable = "CurrentSetpoint"}, 
 	thermostat_setpoint_cooling = {service = SID.temp_setpc, variable = "CurrentSetpoint"}, 
@@ -719,23 +763,51 @@ local EzloItemsMapping = {
 -- We map by SID and action
 local VeraActionMapping = {
 	[SID.sec_sensor] = {
-			["SetArmed"] = { fn = function(dev, params) return "hub.device.armed.set", "armed", (params.newArmedValue == "1") end }
+			["SetArmed"] = { fn = function(dev, params) return {i="armed", v=(params.newArmedValue == "1")} end }
 		},
 	[SID.hvac_uom] = {
+			-- ModeTarget Allowed values:
+			--	"Off", "HeatOn", "CoolOn", "AutoChangeOver", "AuxHeatOn", "EconomyHeatOn", "EmergencyHeatOn", "AuxCoolOn"
+			-- 	"EconomyCoolOn", "BuildingProtection", "EnergySavingsMode"
+			-- EnergyModeTarget allowed values:
+			--	"Normal", "EnergySavingsMode"
+			-- SID.hvac_os ModeState allowed values:
+			--	"Idle", "Heating", "Cooling", "FanOnly", "PendingHeat", "PendingCool", "Vent"
+			
+			-- Ezlo thermostat_mode Enums (get/set): 
+			--	"off", "heat", "cool", "aux", "resume", "fan_only", "furnace", "dry_air", "moist_air", "auto_change_over", 
+			--	"energy_saving_heat", "energy_saving_cool", "away", "reserved", "full_power"
 			["SetModeTarget"] = { fn = function(dev, params)
 									-- look at EnergyMode to see if that is on or not
 									local eMode = getVar("EnergyModeStatus", SID.hvac_uom, dev) or "Normal"
 									local mode
 									if params.NewModeTarget == "Off" then
-										mode = 0
-									elseif params.NewModeTarget == "CoolOn" then
-										mode = 2 + (eMode == "EnergySavingsMode" and 10 or 0)
-									elseif params.NewModeTarget == "HeatOn" then
-										mode = 1 + (eMode == "EnergySavingsMode" and 10 or 0)
+										mode = "off"
+									elseif params.NewModeTarget == "CoolOn" or params.NewModeTarget == "EconomyCoolOn" then
+										if eMode == "EnergySavingsMode" then
+											mode = "energy_saving_cool" 
+										else
+											mode = "cool" 
+										end
+									elseif params.NewModeTarget == "HeatOn" or params.NewModeTarget == "EconomyHeatOn" then
+										if eMode == "EnergySavingsMode" then
+											mode = "energy_saving_heat" 
+										else
+											mode = "heat" 
+										end
 									elseif params.NewModeTarget == "AutoChangeOver" then
-										mode = 10
+										mode = "auto_change_over"
 									end
-									return "hub.item.value.set", "thermostat_mode", mode
+									local ret_t = {}
+									table.insert(ret_t, {i="thermostat_mode", v=mode})
+									-- Can have more parameters, return table?
+									if params.NewHeatSetpoint then
+										table.insert(ret_t, {i="thermostat_setpoint_heating", v=tonumber(params.NewHeatSetpoint) or 0})
+									end
+									if params.NewCoolSetpoint then
+										table.insert(ret_t, {i="thermostat_setpoint_cooling", v=tonumber(params.NewCoolSetpoint) or 0})
+									end
+									return ret_t
 								end 
 				},
 			["SetEnergyModeTarget"] = { fn = function(dev, params)
@@ -743,43 +815,120 @@ local VeraActionMapping = {
 									local ms = getVar("ModeStatus", SID.hvac_uom, dev) or "Off"
 									local mode
 									if ms == "CoolOn" then
-										mode = 2 + (eMode == "EnergySavingsMode" and 10 or 0)
+										if params.NewModeTarget == "EnergySavingsMode" then
+											mode = "energy_saving_cool" 
+										else
+											mode = "cool" 
+										end
 									elseif ms == "HeatOn" then
-										mode = 1 + (eMode == "EnergySavingsMode" and 10 or 0)
+										if params.NewModeTarget == "EnergySavingsMode" then
+											mode = "energy_saving_heat" 
+										else
+											mode = "heat" 
+										end
 									else
-										mode = 0
+										mode = "off"
 									end
-									return "hub.item.value.set", "thermostat_mode", mode
+									return {{i="thermostat_mode", v=mode}}
 								end 
 				}
 		},
 	[SID.hvac_fom] = {
-			["SetMode"] = { fn = function(dev, params)	-- Not fully functional. Would need to look at FanSpeedStatus as well.
-									local mode = 0 -- is auto_low
+			-- from Centralite_3157100: "fanmode_on", "fanmode_on_auto" ?
+			-- Ezlo thermostat_fan_mode Enums (get/set): 
+			-- "auto_low", "low", "auto_high", "high", "auto_medium", "medium", "circulation", "humidity_circulation", "left_and_right"
+			-- "up_and_down", "quiet"
+			-- Vera Mode allowedValues :
+			--	"Auto", "ContinuousOn", "PeriodicOn"
+			-- look at fanspeed for low/med/high values
+			["SetMode"] = { fn = function(dev, params)
+									local fs = tonumber(getVar("FanSpeedStatus", SID.hvac_fs, dev) or 0)
+									local mode = "auto_low" -- is auto_low
 									if params.NewMode == "Auto" then
-										mode = 4	-- Just set to auto_medium
+										if fs < 31 then
+											mode = "auto_low"
+										elseif fs > 69 then
+											mode = "auto_high"
+										else
+											mode = "auto_medium"
+										end
 									elseif params.NewMode == "ContinuousOn" then
-										mode = 5	-- Just set to medium
+										if fs < 31 then
+											mode = "low"
+										elseif fs > 69 then
+											mode = "high"
+										else
+											mode = "medium"
+										end
 									elseif params.NewMode == "PeriodicOn" then
 									end
-									return "hub.item.value.set", "thermostat_fan_mode", mode
+									return {{i="thermostat_fan_mode", v=mode}}
+								end 
+				}
+		},
+	[SID.hvac_fs] = {
+			-- from Centralite_3157100: "fanmode_on", "fanmode_on_auto" ?
+			-- Ezlo thermostat_fan_mode Enums (get/set): 
+			-- "auto_low", "low", "auto_high", "high", "auto_medium", "medium", "circulation", "humidity_circulation", "left_and_right"
+			-- "up_and_down", "quiet"
+			-- Vera Mode allowedValues :
+			--	"Auto", "ContinuousOn", "PeriodicOn"
+			-- look at fanspeed for low/med/high values
+			["SetFanSpeed"] = { fn = function(dev, params)
+									local fm = getVar("FanStatus", SID.hvac_fom, dev) or "Auto"
+									local fs = tonumber(params.NewFanSpeedTarget) or 0
+									local mode = "auto_low" -- is auto_low
+									if fm == "Auto" then
+										if fs < 31 then
+											mode = "auto_low"
+										elseif fs > 69 then
+											mode = "auto_high"
+										else
+											mode = "auto_medium"
+										end
+									elseif fm == "ContinuousOn" then
+										if fs < 31 then
+											mode = "low"
+										elseif fs > 69 then
+											mode = "high"
+										else
+											mode = "medium"
+										end
+									elseif fm == "PeriodicOn" then
+									end
+									return {{i="thermostat_fan_mode", v=mode}}
+								end 
+				},
+			["SetFanDirection"] = { fn = function(dev, params)
+									-- no equivalent.
+									local dt = tonumber(params.NewDirectionTarget) or 0
+									return nil
 								end 
 				}
 		},
 	[SID.temp_setph] = {
 			["SetCurrentSetpoint"] = { fn = function(dev, params)
-									return "hub.item.value.set", "thermostat_setpoint_heating", tonumber(params.NewCurrentSetpoint) or 0
+									return {{i="thermostat_setpoint_heating", v=tonumber(params.NewCurrentSetpoint) or 0}}
 								end 
 				}
 		},
 	[SID.temp_setpc] = {
-			["SetCurrentSetpoint"] = { fn = function(dev, params) return "hub.item.value.set", "thermostat_setpoint_cooling", tonumber(params.NewCurrentSetpoint) or 0 end }
+			["SetCurrentSetpoint"] = { fn = function(dev, params) 
+									return {{i="thermostat_setpoint_cooling", v=tonumber(params.NewCurrentSetpoint) or 0}}
+								end 
+				}
 		},
 	[SID.temp_setp] = {
-			["SetCurrentSetpoint"] = { fn = function(dev, params) return "hub.item.value.set", "thermostat_setpoint", tonumber(params.NewCurrentSetpoint) or 0 end }
+			["SetCurrentSetpoint"] = { fn = function(dev, params) 
+									return {{i="thermostat_setpoint", v=tonumber(params.NewCurrentSetpoint) or 0}}
+								end 
+				}
 		},
 	[SID.door_lock] = {
-			["SetTarget"] = { fn = function(dev, params) return "hub.item.value.set", "door_lock", (params.newTargetValue == "1" and "lock" or "unlock") end },
+			["SetTarget"] = { fn = function(dev, params) 
+									return {{i="door_lock", v=(params.newTargetValue == "1" and "lock" or "unlock")}}
+								end 
+				},
 			["SetPin"] = { fn = function(dev, params)
 									--[[ Need to set: door_??
 									params.UserCodeName
@@ -833,27 +982,30 @@ local VeraActionMapping = {
 				}
 		},
 	[SID.window_cov] = {
-			["Up"]		= { fn = function(dev, params) return "hub.item.value.set", "dimmer_up", true end },
-			["Down"]	= { fn = function(dev, params) return "hub.item.value.set", "dimmer_down", true end },
-			["Stop"]	= { fn = function(dev, params) return "hub.item.value.set", "dimmer_stop", true end }
+			["Up"]		= { fn = function(dev, params) return {{i="dimmer_up", v=true}} end },
+			["Down"]	= { fn = function(dev, params) return {{i="dimmer_down", v=true}} end },
+			["Stop"]	= { fn = function(dev, params) return {{i="dimmer_stop", v=true}} end }
 		},
 	[SID.switch_power] = {
-			["SetTarget"] = { fn = function(dev, params) return "hub.item.value.set", "switch", (params.newTargetValue == "1") end }
+			["SetTarget"] = { fn = function(dev, params) return {{i="switch", v=(params.newTargetValue == "1")}} end }
 		},
 	[SID.energy] = {
-			["ResetKWH"] = { fn = function(dev, params) return "hub.item.value.set", "meter_reset", true end }
+			["ResetKWH"] = { fn = function(dev, params) return {{i="meter_reset", v=true}} end }
 		},
 	[SID.dimming] = {
-			["SetLoadLevelTarget"] = { fn = function(dev, params) return "hub.item.value.set", "dimmer", tonumber(params.newLoadlevelTarget) or 0 end }
+			["SetLoadLevelTarget"] = { fn = function(dev, params) 
+									return {{i="dimmer", v=(tonumber(params.newLoadlevelTarget) or 0)} }
+								end 
+				}
 		},
 	[SID.color] = {
 			["SetColor"] = { fn = function(dev, params)
-									return nil, "rgb_color", params.newColorTarget
+									return nil --, "rgb_color", params.newColorTarget
 								end 
 				},
-			["SetColorRGB"] = { fn = function(dev, params) return "hub.item.value.set", "rgb_color", params.newColorRGBTarget end },
+			["SetColorRGB"] = { fn = function(dev, params) return {{i="rgb_color", v=params.newColorRGBTarget}} end },
 			["SetColorTemp"] = { fn = function(dev, params)
-									return nil, "rgb_color", params.newColorTempTarget
+									return nil  --, "rgb_color", params.newColorTempTarget
 								end 
 				}
 		}
@@ -1356,7 +1508,7 @@ debug("sha pwd "..SHA1pwd)
 		local wss_token = ''
 		local contr_uuid = ''
 		-- Look up uuid for controller based on serial#
-		for key, key_data in pairs(data.keys) do
+		for _, key_data in pairs(data.keys) do
 			if key_data.meta then
 				if key_data.meta.entity then
 					if key_data.meta.entity.id then
@@ -1370,7 +1522,7 @@ debug("sha pwd "..SHA1pwd)
 		if contr_uuid == '' then
 			return false, "Controller serial not found"
 		end
-		for key, key_data in pairs(data.keys) do
+		for _, key_data in pairs(data.keys) do
 			if key_data.data and wss_user == '' and wss_token == '' then
 				if key_data.data.string then
 					if key_data.meta.target.uuid == contr_uuid then
@@ -1417,18 +1569,15 @@ debug("sending command : "..(cmd:format(data.method, id, params) or "fail"))
 
 	-- open web socket connection
 	local function Connect(controller_ip, wss_token, wss_user)
-debug("Connect. 0.... ")
 		wsconn, msg = luaws.wsopen('wss://' .. controller_ip .. ':' .. ezloPort, MessageHandler)
 		if wsconn == false then
 			debug("Could not open WebSocket. " .. tostring(msg or ""))
 			return false, "Could not open WebSocket. " .. tostring(msg or "")
 		end	
-debug("Connect. 1.... ")
 		connectionsStatus = STAT.CONNECTING
 		hubIp = controller_ip
 		wssToken = wss_token
 		wssUser = wss_user
-debug("Connect. 2.... ")
 		-- Send local login command
 		return Send({method="hub.offline.login.ui", params = {user = wss_user, token = wss_token}})
 	end	
@@ -1779,11 +1928,7 @@ local function create_scenes (remote_scenes, room)
   end
   
   luup.log "linking to remote scenes..."
-  
---  local action = "RunScene"
---  local wget = 'luup.inet.wget "http://%s%s/data_request?id=action&serviceId=%s&action=%s&SceneNum=%d"' 
   local call = 'luup.call_action("%s", "RunRemoteScene", {["SceneNum"] = %d}, %d)'  -- 2020.05.30e
-  
   for _, s in pairs (remote_scenes) do
     local id = s.id + OFFSET             -- retain old number, but just offset it
     if not s.notification_only then
@@ -1791,12 +1936,11 @@ local function create_scenes (remote_scenes, room)
         M = M + 1
       else
         local new = {
-          id = id,
-          name = s.name,
-          room = room,
---          lua = wget:format (ip, RemotePort, SID.hag, action, s.id)   -- trigger the remote scene
+			id = id,
+			name = s.name,
+			room = room,
 			lua = call:format (SID.gateway, s.id, devNo)   -- trigger the remote scene action -- 2020.05.30e
-          }
+		}
         luup.scenes[new.id] = scenes.create (new)
         luup.log (("scene [%d] %s"): format (new.id, new.name))
         N = N + 1
@@ -1811,17 +1955,10 @@ end
 
 
 local function GetUserData ()
-	local Vera    -- (actually, 'remote' Vera!)
 	local loadtime    -- 2019.05.03
 	local Ndev, Nscn = 0, 0
 	local version, PK_AccessPoint
---	if isEzloHub then
-		Vera = EzloData.Vera	-- We build the user_data like structure with initial calls to Ezlo Hub.
---	else
---		local url = "/data_request?id=user_data2&output_format=json&ns=1"   -- 2018.01.29  ignore static_data content
---		local status, j = remote_request (url)
---		if status == 0 then Vera = json.decode (j) end
---	end	
+	local Vera = EzloData.Vera	-- We build the user_data like structure with initial calls to Ezlo Hub.
 	if Vera then 
 		luup.log "Hub info received!"
 		loadtime = Vera.LoadTime
@@ -1869,31 +2006,6 @@ local function GetUserData ()
 	return Ndev, Nscn, version, PK_AccessPoint, loadtime
 end
 
--- MONITOR variables
-
--- updates existing device variables with new values
--- this devices table is from the "status" request
---[[
-local function UpdateVariables(devices)
-  local update = false
-  for _, dev in pairs (devices) do
-  dev.id = tonumber (dev.id)
-    local i = local_by_remote_id(dev.id)
-    local device = i and luup.devices[i] 
-    if device and (type (dev.states) == "table") then
-      device: status_set (dev.status)      -- 2016.04.29 set the overall device status
-      for _, v in ipairs (dev.states) do
-        local value = luup.variable_get (v.service, v.variable, i)
-        if (v.value ~= value) or (v.variable: sub(1,3) == "sl_") then   -- 2019.12.10  add sl_ prefix special case
-          luup.variable_set (v.service, v.variable, v.value, i)
-          update = true
-        end
-      end
-    end
-  end
-  return update
-end
-]]
 
 -- update HouseMode variable and, possibly, the actual openLuup Mode
 -- For Vera this function is called in each poll, but for Ezlo we do not poll. How to sync for Mirror mode 2??
@@ -1916,126 +2028,19 @@ local function UpdateHouseMode (Mode)
       luup.call_action (SID.hag, "SetHouseMode", {Mode = Mode, Now=1})    -- 2018.03.02  with immediate effect 
 
     elseif HouseModeMirror == '2' then
--- This relies on polling the remote Hub, but for Ezlo we do not do that. Need to find efficient way.
--- Maybe change ping to GetHouseMode call.
       local now = os.time()
       luup.log "remote HouseMode differs from that set..."
       if now > HouseModeTime + 60 then        -- ensure a long delay between retries (Vera is slow to change)
         local switch = "remote HouseMode update, was: %s, switching to: %s"
         luup.log (switch: format (Mode, current))
         HouseModeTime = now
---		if isEzloHub then
-			ezlo.Send({method = "hub.modes.switch", params = { modeId = current }})
+		ezlo.Send({method = "hub.modes.switch", params = { modeId = current }})
 debug("UpdateHouseMode "..'{"method":"hub.modes.switch","params":{"modeId":"'..current..'"}}')
---		else
---			local request = "/data_request?id=action&serviceId=%s&DeviceNum=0&action=SetHouseMode&Mode=%s"
---			remote_request (request: format(SID.hag, current))
---		end	
       end
     end
   end
 end
 
-
--- poll remote Vera for changes
--- two versions: synchronous delay short polling / asynchronous long polling
---[[
-do
-  local poll_count = 0
-  local DataVersion = ''
-
-  local function update_from_status (j)   -- 2019.03.14
-    local s = json.decode (j)
-    local ok = type(s) == "table" 
-    if ok then
-      DataVersion = s.DataVersion or ''
-      UpdateHouseMode (s.Mode)
-      if s.devices and UpdateVariables (s.devices) then -- 2016.11.20 only update if any variable changes
-        luup.devices[devNo]:variable_set (SID.gateway, "LastUpdate", os.time(), true) -- 2016.03.20 set without log entry
-        if s.LoadTime ~= LoadTime then                                                -- 2019.03.18 ditto
-          LoadTime = s.LoadTime
-          luup.devices[devNo]:variable_set (SID.gateway, "LoadTime", LoadTime, true)
-        end 
-      end 
-    end
-    return ok
-  end
-  
---  local uri = "%s%s%s/data_request?id=status2&output_format=json&MinimumDelay=%s&Timeout=%s&DataVersion=%s"
-  local uri = "%s%s%s/data_request?id=status2&output_format=json&Timeout=%s&DataVersion=%s"
-  local log = "VeraBridge ASYNC callback status: %s, #data: %s"
-  local erm = "VeraBridge ASYNC request: %s"
-  
-  local function increment_poll_count ()                        -- 2019.12.12
-    local every = tonumber (CheckAllEveryNth) or 0
-    poll_count = poll_count + 1
-    if every > 0 then poll_count = poll_count % every end       -- wrap every N
-  end
-  
-  -- original short polling
-  
-  function VeraBridge_delay_callback ()
-    increment_poll_count ()
-    if poll_count == 0 then DataVersion = '' end  -- .. and go for the complete list (in case we missed any)
-    local url = "/data_request?id=status2&output_format=json&DataVersion=" .. DataVersion 
-    local status, j = remote_request (url)
-    if status == 0 then update_from_status (j) end 
-    luup.call_delay ("VeraBridge_delay_callback", POLL_DELAY)
-  end
-
-  -- 2019.03.14   long polling, this is the way that the lu_status request is supposed to be used     
-
-  local last_async_call
-  
-  function VeraBridge_async_request (init)
-    last_async_call = os.time()
-    increment_poll_count ()
-    if init == "INIT" or poll_count == 0 then DataVersion = '' end        -- .. and go for the complete list 
-    
-    local url = uri: format ("http://", ip, RemotePort, POLL_MAXIMUM, DataVersion)
-    local ok, err = async.request (url, VeraBridge_async_callback)
-  
-    if not ok then -- we will never be called again, unless we do something about it
-      luup.log (erm: format (tostring(err)))                              -- report error...
-      POLL_ERRORS = POLL_ERRORS + 1
-      luup.call_delay ("VeraBridge_async_request", POLL_DELAY, "INIT")    -- ...and reschedule ourselves to try again
-    end
-  end
-  
-  function VeraBridge_async_callback (response, code, headers, statusline)
-    local delay = POLL_DELAY
-    local init = "INIT"           -- assume the worst
-    if code == 200 and headers and statusline then 
-      local ok = update_from_status (response)              -- did we get valid data for update?
-      if ok then 
-        delay = POLL_MINIMUM end                    -- yes, ask for another one soon...
-        init = ''                                   -- ... without initialising data version
-    else
-      luup.log (log: format (code or '?', #(response or '')))
-    end
-    luup.call_delay ("VeraBridge_async_request", delay, init)    -- schedule next request
-  end
-
-  function VeraBridge_async_watchdog (timeout)
-    if (last_async_call + timeout) < os.time() then
-      POLL_TIMEOUTS = POLL_TIMEOUTS + 1
-      VeraBridge_async_request ()                     -- throw in another call, just in case we missed one
-    end
-    luup.call_delay ("VeraBridge_async_watchdog", timeout, timeout)
-  end
-
-end
-
--- logged request
-
-local function wget (request)
-  luup.log (request)
-  local status, result = luup.inet.wget (request)
-  if status ~= 0 then
-    luup.log ("failed requests status: " .. (result or '?'))
-  end
-end
-]]
 
 --
 -- Bridge ACTION handler(s)
@@ -2044,33 +2049,25 @@ end
 -- Called when scene on bridged hub so we can run on Vera and Ezlo hub -- 2020.05.30e
 function RunRemoteScene (params)
 debug("RunRemoteScene, SceneNum : "..(params.SceneNum or "??"))
---	if isEzloHub then
-		local escnId
-		local vscnId = tonumber(params.SceneNum or 0)
-		for i, id in pairs(EzloData.sceneMap) do
-			if id == vscnId then 
-				escnId = i 
-				break
-			end
+	local escnId
+	local vscnId = tonumber(params.SceneNum or 0)
+	for i, id in pairs(EzloData.sceneMap) do
+		if id == vscnId then 
+			escnId = i 
+			break
 		end
-		if escnId then
-			ezlo.Send({ method = "hub.scenes.run", params = { sceneId = escnId }})
-		else
-			luup.log("RunRemoteScene, SceneNum : "..(params.SceneNum or "??").." does not map to a Ezlo Hub Scene")
-		end	
---	else
---		local request = "/data_request?id=action&serviceId=%s&DeviceNum=0&action=RunScene&SceneNum=%d"
---		local url = request: format(SID.hag, params.SceneNum)   -- trigger the remote scene
---debug("RunRemoteScene Vera URL : "..url)		
---		remote_request (url)
---	end
+	end
+	if escnId then
+		ezlo.Send({ method = "hub.scenes.run", params = { sceneId = escnId }})
+	else
+		luup.log("RunRemoteScene, SceneNum : "..(params.SceneNum or "??").." does not map to a Ezlo Hub Scene")
+	end	
 end
 
 
--- GetVeraScenes action (not to be confused with the usual scene linking.)
+-- GetRemoteScenes action (not to be confused with the usual scene linking.)
 -- Makes new copies in the 100,000+ range to aid logic transfer to openLuup
 
---function GetVeraScenes()
 function GetRemoteScenes(p)
   luup.log "GetRemoteScenes action called"
   
@@ -2131,39 +2128,37 @@ end
 --
 local function generic_action (serviceId, name)
 
-debug("generic_action 1 "..serviceId..", "..name)
-
   local function job (lul_device, lul_settings)
     local devNo = remote_by_local_id (lul_device)
-debug("generic_action 2 "..lul_device..", "..devNo)
 	
     if not devNo then return end        -- not a device we have cloned
-
     if devNo == 0 and serviceId ~= SID.hag then  -- 2018.02.17  only pass on hag requests to device #0
       return 
     end
-debug("generic_action 3 "..tostring(EzloData.is_ready))
   
---	if isEzloHub then
-		if not EzloData.is_ready then
-			-- Connection is not ready yet.
-			return 3,0
-		end
-		local eaction = VeraActionMapping[serviceId]
-		local edevID = EzloData.reverseDeviceMap[devNo].id
+	if not EzloData.is_ready then
+		-- Connection is not ready yet.
+		return 3,0
+	end
+	local eaction = VeraActionMapping[serviceId]
+	local edevID = EzloData.reverseDeviceMap[devNo].id
 debug("Action for Ezlo device : "..(edevID or "not found!"))		
-		if eaction then 
-			eaction = eaction[name]
-			if eaction then
-				local method, ename, value = eaction.fn(devNo, lul_settings)
-				if method then
-debug("Method : "..tostring(method)..", name : "..tostring(ename or "nil")..", value : "..tostring(value))
-					local item = EzloItemsMapping[ename]
+	if eaction then 
+		eaction = eaction[name]
+		if eaction then
+			local methods = eaction.fn(devNo, lul_settings)
+debug("number of methods to send "..(#methods or 0))
+			if methods then
+				for _,v in ipairs(methods) do
+					local method = v.m or "hub.item.value.set"
+					local iname, value = v.i, v.v
+debug("Method : "..tostring(method)..", name : "..tostring(iname or "nil")..", value : "..tostring(value))
+					local item = EzloItemsMapping[iname]
 					if item then
 						local params = {}
 						if item.hasSetter and method == "hub.item.value.set" then
 							-- Get the Id of the item of the device
-							params._id = EzloData.reverseDeviceMap[devNo].items[ename]
+							params._id = EzloData.reverseDeviceMap[devNo].items[iname]
 						else
 							params._id = edevID
 						end
@@ -2178,41 +2173,18 @@ debug("Method : "..tostring(method)..", name : "..tostring(ename or "nil")..", v
 debug("Action command "..dkjson.encode({method=method, params=params}))
 						ezlo.Send({method=method, params=params})
 					else
-						luup.log ("Unknown item type :"..(ename or "nil"),2)
+						luup.log ("Unknown item type :"..(iname or "nil"),2)
 					end
-				else
-					luup.log ("Actions not supported for ServiceID :"..serviceId..", Action :"..name)
-				end
+				end	
 			else
-				luup.log ("No actions found for ServiceID :"..serviceId..", Action :"..name)
+				luup.log ("Actions not supported for ServiceID :"..serviceId..", Action :"..name)
 			end
 		else
-			luup.log ("No actions found for ServiceID :".. serviceId)
+			luup.log ("No actions found for ServiceID :"..serviceId..", Action :"..name)
 		end
---[[
 	else
-		local basic_request = table.concat {"http://", ip, RemotePort, "/data_request?id=action"}
-		local params = {}
-		for a,b in pairs (lul_settings) do
-			params[a] = url.escape(b)
-		end
-        params.DeviceNum = devNo        -- use remote device number
-		params.serviceId = serviceId
-		params.action    = name
-		local request = {basic_request}
-		for a,b in pairs (params) do
-			request[#request+1] = table.concat {a, '=', b} 
-		end
-		local url = table.concat (request, '&')
-    
-		if logical_true(AsyncPoll) then
-			async.request (url, function() debug "RESPONSE (async)" end)
-			debug ("REQUEST (async) " .. url)
-		else
-			wget (url)
-		end
-	end	
-]]
+		luup.log ("No actions found for ServiceID :".. serviceId)
+	end
     return 4,0
   end
   
@@ -2233,7 +2205,7 @@ end
 -- Ezlo incomming messages handlers
 --
 -- Map an Ezlo item to an Vera Service Variable.
-local function mapItem(eitem)
+local function mapItem(eitem, vdevID)
 	local v = EzloItemsMapping[eitem.name]
 	if not v then
 		-- If we do not have any definition, map to generic sensor
@@ -2255,7 +2227,7 @@ local function mapItem(eitem)
 	-- See if we have a convert function for the name
 	local value = eitem.value
 	if v.convert then
-		value = v.convert(eitem.value)
+		value = v.convert(eitem.value, vdevID)
 	elseif v.variable == "Tripped" and v.tripvalue then
 		-- Handle sensor tripping
 		value = (eitem.value == v.tripvalue and "1" or "0")
@@ -2444,7 +2416,7 @@ local function MethodHandler(method,result)
 			Room_Num_Next = roomMap.Room_Num_Next
 		end
 		-- Loop over Ezlo devices and create Vera like structure.
-		for k, erm in pairs(result) do
+		for _, erm in pairs(result) do
 			-- See if we know the device
 			local vroomID = roomMap[erm._id]
 			if vroomID then
@@ -2486,7 +2458,7 @@ local function MethodHandler(method,result)
 			Scene_Num_Next = sceneMap.Scene_Num_Next
 		end
 		-- Loop over Ezlo devices and create Vera like structure.
-		for k, escn in pairs(result.scenes) do
+		for _, escn in pairs(result.scenes) do
 			-- See if we know the device
 			local vscnID = sceneMap[escn._id]
 			if vscnID then
@@ -2549,7 +2521,9 @@ local function MethodHandler(method,result)
 		local reverseDeviceMap = {}
 		-- Loop over Ezlo devices and create Vera like structure.
 --debug(json.encode(result.devices))
-		for k, edev in pairs(result.devices) do
+		for _, edev in pairs(result.devices) do
+			-- Do we have wrong _id data key? Seen one log where this is the case
+			if edev._id == nil and edev.id then edev._id = edev.id end
 			-- See if we know the device
 			local vdevID = deviceMap[edev._id]
 			if vdevID then
@@ -2601,12 +2575,44 @@ local function MethodHandler(method,result)
 					local val = edev.armed and "1" or "0"
 					vdev.states = {{ id = 1, service = SID.sec_sensor, variable = "Armed", value = val }}
 				end
+				-- See if we have device info (only Linux, not on RTOS)
+				if type(edev.info) == "table" then
+					vdev.manufacturer = edev.info.manufacturer
+					vdev.model = edev.info.model
+				end
 				-- Add to list
 				table.insert(EzloData.Vera.devices, vdev)
 			else
 				luup.log("No Vera device definition found for Ezlo category "..(edev.category or "")..", subcategory "..(edev.subcategory or ""))
 			end	
 		end
+		-- Loop over devices again to look for child devices. 
+		for _, edev in pairs(result.devices) do
+			-- We must know the device
+			if edev.parentDeviceId ~= "" then
+				-- Do we have wrong _id data key? Seen one log where this is the case
+				if edev._id == nil and edev.id then edev._id = edev.id end
+				local vdevID = deviceMap[edev._id]
+				if vdevID then
+					local parent_id = deviceMap[edev.parentDeviceId]
+					if parent_id then
+						-- look up Vera device details
+						for _, dev in pairs(EzloData.Vera.devices) do
+							if vdev.id == vdevID then
+								vdev.id_parent = parent_id
+								break
+							end
+						end
+					else
+						luup.log("Unknown Ezlo parent device ".. edev.parentDeviceId)
+					end
+				else	
+					-- unknown device?
+					luup.log("Unknown Ezlo device ".. edev._id,2)
+				end
+			end
+		end	
+
 		EzloData.Vera.Device_Num_Next = Device_Num_Next
 		EzloData.deviceMap = deviceMap
 		EzloData.reverseDeviceMap = reverseDeviceMap
@@ -2622,7 +2628,7 @@ local function MethodHandler(method,result)
 		-- Items list received, update device variable values.
 		local deviceMap = EzloData.deviceMap
 		-- Loop over Ezlo devices and create Vera like structure.
-		for k, eitem in pairs(result.items) do
+		for _, eitem in pairs(result.items) do
 			-- We are only looking for items with 'Getters' that return a value, or Setters that set a value as result of a Vera device action.
 			if eitem.hasGetter or eitem.hasSetter then
 				-- See if we know the device
@@ -2631,7 +2637,7 @@ local function MethodHandler(method,result)
 --debug("Existing device "..eitem.deviceId.. " mapping to "..vdevID)
 					-- Get the device details to add states to.
 					local device = nil
-					for id, dev in pairs(EzloData.Vera.devices) do
+					for _, dev in pairs(EzloData.Vera.devices) do
 						if dev.id == vdevID then
 							device = dev
 							break
@@ -2640,7 +2646,7 @@ local function MethodHandler(method,result)
 					if device then
 						local state = {}
 						-- Map Ezlo item to Vera service Variable.
-						local vstate = mapItem(eitem)
+						local vstate = mapItem(eitem, vdevID)
 						-- If item has getter we should read the value to a Vera state variable.
 						if eitem.hasGetter then
 							if vstate then
@@ -2787,7 +2793,6 @@ function init (lul_device)
   luup.log ("device clone numbering starts at " .. OFFSET)
 
   -- User configuration parameters: @explorer and @logread options
-  
   BridgeScenes  = uiVar ("BridgeScenes", "1")
   CloneRooms    = uiVar ("CloneRooms", "0")        -- if set to '0' then clone rooms and place devices there
   ZWaveOnly     = uiVar ("ZWaveOnly", "1")         -- if set to '1' then only Z-Wave devices are considered by EzloBridge.
@@ -2795,15 +2800,10 @@ function init (lul_device)
   Excluded      = uiVar ("ExcludeDevices", "")    -- list of devices to exclude from synchronization by EzloBridge, 
                                                 -- ...takes precedence over the first two.
                                               
---  RemotePort    = uiVar ("RemotePort", "/port_3480")
   RemotePort    = uiVar ("RemotePort", "17000")
 --  AsyncPoll     = uiVar ("AsyncPoll", "false")        -- set to "true" to use asynchronous polling of remote Vera
  -- AsyncTimeout  = uiVar ("AsyncTimeout", 300)         -- watchdog timer for lost async requests (seconds)
-  CheckAllEveryNth = uiVar ("CheckAllEveryNth", 20)   -- periodic request for ALL variables to check status
-  
---  local hmm = uiVar ("HouseModeMirror",HouseModeOptions['0'])   -- 2016.05.23
---  HouseModeMirror = hmm: match "^([012])" or '0'
---  setVar ("HouseModeMirror", HouseModeOptions[HouseModeMirror]) -- replace with full string
+  CheckAllEveryNth = uiVar ("CheckAllEveryNth", 300)   -- periodic request for ALL variables to check status
   HouseModeMirror = uiVar ("HouseModeMirror","0")
   
   BridgeScenes = logical_true (BridgeScenes) 
@@ -2828,16 +2828,9 @@ function init (lul_device)
     setVar ("Version", version)
     luup.log (version)
   end
-  -- Flag that we are talking to an Ezlo Hub and not a Vera/openLuup
-  -- We use this flag through out module.
---  if RemotePort == "17000" then
---	isEzloHub = true
---  end
   local status = true
   local status_msg = "OK"
   
---  if isEzloHub then
-	-- For now we only support Zwave from Ezlo hubs (has no plugins yet anyway).
 --	ZWaveOnly = true
 --	setVar ("ZWaveOnly", 1)
     -- Ezlo specific variables needed at start up
@@ -2916,40 +2909,5 @@ function init (lul_device)
 		status_msg = "No Ezlo, check uid, pwd, ip."
 		setVar ("DisplayLine2", status_msg, SID.altui)
 	end
---[[	
-  else
-	-- Vera
-	local Ndev, Nscn
-	Ndev, Nscn, BuildVersion, PK_AccessPoint, LoadTime = GetUserData ()
-  
-	if PK_AccessPoint then                              -- 2018.07.29   only start up when valid PK_AccessPoint
-		setVar ("PK_AccessPoint", PK_AccessPoint)         -- 2018.06.04   Expose PK_AccessPoint as device variable
-		setVar ("Remote_ID", PK_AccessPoint, SID.bridge)  -- 2020.02.12   duplicate above as unique remote ID
-		setVar ("LoadTime", LoadTime or 0)                -- 2019.03.18
-    
-		setVar ("DisplayLine1", Ndev.." devices, " .. Nscn .. " scenes", SID.altui)
-		setVar ("DisplayLine2", ip, SID.altui)        -- 2018.03.02
-    
-		if Ndev > 0 or Nscn > 0 then
-			if logical_true (AsyncPoll) then
-				VeraBridge_async_request "INIT"
-				VeraBridge_async_watchdog (AsyncTimeout)
-			else
-				VeraBridge_delay_callback ()
-			end
-			luup.set_failure (0)                        -- all's well with the world
-		end
-	else
-		luup.set_failure (2)                          -- say it's an authentication error
-		status = false
-		status_msg = "No Vera"
-		setVar ("DisplayLine2", status_msg, SID.altui)
-	end
-
-  end
-  register_AltUI_Data_Storage_Provider ()     -- register with AltUI as MIRROR data storage provider
- ]]
   return status, status_msg, ABOUT.NAME
 end
-
------
