@@ -5,7 +5,7 @@ ABOUT = {
   AUTHOR        = "@reneboer",
   COPYRIGHT     = "(c) 2013-2020 AKBooer and reneboer",
   DOCUMENTATION = "https://github.com/akbooer/openLuup/tree/master/Documentation",
-  DEBUG         = true,
+  DEBUG         = false,
   LICENSE       = [[
   Copyright 2013-2020 AK Booer, Rene Boer
 
@@ -31,9 +31,9 @@ ABOUT = {
 
 -- 2020-05-30   Using VeraBridge 2020.04.30
 -- 2020.06.06b	Implement Ezlo as Hub to bridge
--- 2020.06.23b	Added manufacturer and model if availble from Ezlo.
+-- 2020.06.23b	Added manufacturer and model if available from Ezlo.
 --				Updated HVAC operations
---				Setup child devices corectly by having parent ID.
+--				Setup child devices correctly by setting Vera parent ID.
 
 -- To do's: 
 -- 		better reconnect handler to deal with expired token (did not have it expire yet to test).
