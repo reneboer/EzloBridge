@@ -9,3 +9,8 @@ To-do's:
 - Add Refresh command to pull full config from Ezlo hub again.
 - Test expired token handling
 - Better HVAC and lock support.
+
+Note that you need to have the bitop Lua library installed:
+```
+sudo apt-get install lua-bitop
+``` 
