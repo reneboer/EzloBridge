@@ -2,7 +2,7 @@
 <!-- 
 	Module I_EzloBridge.xml
 	Written by R.Boer. Based on akbooer's VeraBridge.
-	V1.00, 4 June 2020
+	V1.01, 1 July 2020
 -->
 <implementation>
 	<specVersion>
@@ -18,7 +18,7 @@
 	<startup>init</startup>
 	<actionList>
 		<action>
-			<serviceId>urn:akbooer-com:serviceId:EzloBridge1</serviceId>
+			<serviceId>urn:rboer-com:serviceId:EzloBridge1</serviceId>
 			<name>GetRemoteScenes</name>
 			<job>
 				GetRemoteScenes (lul_settings)
@@ -27,7 +27,7 @@
 			<jobname>GetRemoteScenes</jobname>
 		</action>
 		<action>
-			<serviceId>urn:akbooer-com:serviceId:EzloBridge1</serviceId>
+			<serviceId>urn:rboer-com:serviceId:EzloBridge1</serviceId>
 			<name>Restart</name>
 			<job>
 				Restart (lul_settings)
@@ -36,7 +36,7 @@
 			<jobname>Restart</jobname>
 		</action>
 		<action>
-			<serviceId>urn:akbooer-com:serviceId:EzloBridge1</serviceId>
+			<serviceId>urn:rboer-com:serviceId:EzloBridge1</serviceId>
 			<name>RunRemoteScene</name>
 			<job>
 				RunRemoteScene (lul_settings)
@@ -45,7 +45,7 @@
 			<jobname>RunRemoteScene</jobname>
 		</action>
 		<action>
-			<serviceId>urn:akbooer-com:serviceId:EzloBridge1</serviceId>
+			<serviceId>urn:rboer-com:serviceId:EzloBridge1</serviceId>
 			<name>SetHouseMode</name>
 			<job>
 				SetHouseMode (lul_settings)

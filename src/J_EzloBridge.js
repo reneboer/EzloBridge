@@ -1,6 +1,14 @@
+//# sourceURL=J_Harmony.js
+/* harmony Hub Control UI
+ Written by R.Boer. 
+ V1.01 1 July 2020
+
+ V1.01 Changes:
+		Added AutoStartOnChange setting
+*/
 var EzloBridge = (function (api) {
     var _uuid = '12021512-0000-a0a0-b0b0-c0c030303136';
-	var VB_SID = 'urn:akbooer-com:serviceId:EzloBridge1';
+	var VB_SID = 'urn:rboer-com:serviceId:EzloBridge1';
 	var bOnALTUI = true;
 	var DIV_PREFIX = "vbEzloBridge_";	// Used in HTML div IDs to make them unique for this module
 	var MOD_PREFIX = "EzloBridge";  // Must match module name above
@@ -27,6 +35,7 @@ var EzloBridge = (function (api) {
 			var hubList = [{'value':'/port_3480','label':'Vera Hub'},{'value':'3480','label':'openLuup'},{'value':'17000','label':'Ezlo Hub'}];
 			var hmmList = [{'value':'0','label':'No mirroring'},{'value':'1','label':'Local mirrors Remote'},{'value':'2','label':'Remote mirrors Local'}];
 			var yesNo = [{'value':'0','label':'No'},{'value':'1','label':'Yes'}];
+			var intervalList = [{'value':'300','label':'Five minutes'},{'value':'600','label':'Ten minutes'},{'value':'900','label':'Fivteen minutes'},{'value':'1800','label':'Thirty minutes'},{'value':'3600','label':'One hour'}];
 			var logLevel = [{'value':'1','label':'Error'},{'value':'2','label':'Warning'},{'value':'8','label':'Info'},{'value':'10','label':'Debug'},{'value':'101','label':'Develop'}];
 			var html = '<div class="deviceCpanelSettingsPage">'+
 				'<h3>Device #'+deviceID+'&nbsp;&nbsp;&nbsp;'+api.getDisplayedDeviceName(deviceID)+'</h3>';
@@ -50,6 +59,8 @@ var EzloBridge = (function (api) {
 				htmlAddPulldown(deviceID, 'House Mode Mirroring', 'HouseModeMirror', hmmList)+
 				htmlAddPulldown(deviceID, 'Bridge Scenes', 'BridgeScenes', yesNo)+
 				htmlAddPulldown(deviceID, 'Clone Rooms', 'CloneRooms', yesNo)+
+				htmlAddPulldown(deviceID, 'Full status interval', 'CheckAllEveryNth', intervalList)+
+				htmlAddPulldown(deviceID, 'Reload when device added/removed', 'AutoStartOnChange', yesNo)+
 				htmlAddPulldown(deviceID, 'Log level', 'LogLevel', logLevel)+
 				htmlAddButton(deviceID, 'UpdateSettingsCB')+
 				'</div>';
@@ -84,6 +95,8 @@ var EzloBridge = (function (api) {
 		varSet(deviceID,'HouseModeMirror',htmlGetPulldownSelection(deviceID, 'HouseModeMirror'));
 		varSet(deviceID,'BridgeScenes',htmlGetPulldownSelection(deviceID, 'BridgeScenes'));
 		varSet(deviceID,'CloneRooms',htmlGetPulldownSelection(deviceID, 'CloneRooms'));
+		varSet(deviceID,'AutoStartOnChange',htmlGetPulldownSelection(deviceID, 'AutoStartOnChange'));
+		varSet(deviceID,'CheckAllEveryNth',htmlGetPulldownSelection(deviceID, 'CheckAllEveryNth'));
 		varSet(deviceID,'LogLevel',htmlGetPulldownSelection(deviceID, 'LogLevel'));
 		application.sendCommandSaveUserData(true);
 		setTimeout(function() {

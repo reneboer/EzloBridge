@@ -1,6 +1,6 @@
 ABOUT = {
   NAME          = "LuupWebSocket",
-  VERSION       = "20142",
+  VERSION       = "20143",
   DESCRIPTION   = "Luup WebSocket for openLuup",
   AUTHOR        = "@rigpapa",
   COPYRIGHT     = "(c) 2020 rigpapa and reneboer",
@@ -28,11 +28,12 @@ ABOUT = {
 
 	NOTA BENE: 64-bit payload length not supported.
 
-RB: 	fix for messages larger than 256 bytes.
+RB: fix for messages larger than 256 bytes.
 	fix for handling ping request
 	removed chat option from negotiate.
 	fix for fragmented packages
 	added wslastping function to look for timeouts
+	ping timer reset on each incomming message, not only ping.
 ]]
 }
 --luacheck: std lua51,module,read globals luup,ignore 542 611 612 614 111/_,no max line length
@@ -254,9 +255,7 @@ local function wsopen( url, handler, options )
 			options=split( options.ssl_options, 'all,no_sslv2,no_sslv3' )  -- options instead of just all?
 		}
 		sock = ssl.wrap( wsconn.socket, opts )
-D("wsopen(2.1.1) Hangs here at dohandshake for Athom")
 		if sock and sock:dohandshake() then
-D("wsopen(2.1.2) Hangs here at dohandshake for Athom")
 			D("wsopen() successful SSL/TLS negotiation")
 			wsconn.socket = sock -- save wrapped socket
 		else
@@ -596,6 +595,7 @@ local function wsreceive( wsconn )
 			if bb and #bb > 0 then
 --				D("wsreceive() %1; handling partial result %2 bytes", err, #bb)
 				wshandleincoming( bb, wsconn )
+				wsconn.lastping_ts = timenow()	-- record last 'ping' received. Count any message.
 				return false, #bb -- timeout, say no more data
 			elseif wsconn.options.receive_timeout > 0 and (timenow() - wsconn.lastMessage) > wsconn.options.receive_timeout then
 				pcall( wsconn.msghandler, wsconn, false, "message timeout", unpack(wsconn.options.handler_args or {}))
@@ -610,6 +610,7 @@ local function wsreceive( wsconn )
 --	D("wsreceive() handling %1 bytes", #nb)
 	if #nb > 0 then
 		wshandleincoming( nb, wsconn )
+		wsconn.lastping_ts = timenow()
 	end
 	return #nb > 0, #nb -- data handled, maybe more?
 end

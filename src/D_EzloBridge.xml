@@ -2,7 +2,7 @@
 <!-- 
 	Module D_EzloBridge.xml
 	Written by R.Boer. Based on akbooer's VeraBridge.
-	V1.00, 4 June 2020
+	V1.10, 1 July 2020
 -->
 <root xmlns="urn:schemas-upnp-org:device-1-0">
 	<specVersion>
@@ -10,7 +10,7 @@
 		<minor>0</minor>
 	</specVersion>
   	<device>
-		<deviceType>urn:schemas-akbooer-com:device:EzloBridge:1</deviceType>
+		<deviceType>urn:schemas-rboer-com:device:EzloBridge:1</deviceType>
 		<Category_Num>1</Category_Num>
 		<SubCategory_Num>0</SubCategory_Num>
 		<staticJson>D_EzloBridge.json</staticJson>
@@ -19,8 +19,8 @@
 		<manufacturer>ReneBoer</manufacturer>
 		<serviceList>
 			<service>
-				<serviceType>urn:schemas-akbooer-com:service:EzloBridge1:1</serviceType>
-				<serviceId>urn:akbooer-com:serviceId:EzloBridge1</serviceId>
+				<serviceType>urn:schemas-rboer-com:service:EzloBridge1:1</serviceType>
+				<serviceId>urn:rboer-com:serviceId:EzloBridge1</serviceId>
 				<SCPDURL>S_EzloBridge.xml</SCPDURL>
 			</service>
 		</serviceList>
