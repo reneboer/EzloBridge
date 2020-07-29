@@ -1,6 +1,6 @@
 ABOUT = {
   NAME          = "EzloBridge",
-  VERSION       = "2020.06.23b",
+  VERSION       = "2020.07.29b",
   DESCRIPTION   = "EzloBridge plugin for openLuup",
   AUTHOR        = "@reneboer",
   COPYRIGHT     = "(c) 2013-2020 AKBooer and reneboer",
@@ -2598,8 +2598,8 @@ local function MethodHandler(method,result)
 					if parent_id then
 						-- look up Vera device details
 						for _, dev in pairs(EzloData.Vera.devices) do
-							if vdev.id == vdevID then
-								vdev.id_parent = parent_id
+							if dev.id == vdevID then
+								dev.id_parent = parent_id
 								break
 							end
 						end
