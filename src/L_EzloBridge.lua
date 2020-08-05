@@ -44,6 +44,7 @@ ABOUT = {
 -- 1.02b		Handle broken device status. (Message shows as Cannot reach or broken)
 -- 				Fixed issue for unwanted State variables created for Ezlo device items we want to ignore.
 --				Fixed duplicate creation of CurrentTemperature.
+--				Display Device Broken message if hub shows as broken
 
 -- To do's: 
 -- 		better reconnect handler to deal with expired token (did not have it expire yet to test).
@@ -2255,11 +2256,11 @@ end
 local function set_device_reachable_status(reachable, devID)
 	local msg = ""
 	local status = -1
-log.Debug("set_device_reachable_status, device %s, reachable %s", tostring(devID), tostring(reachable))	
 	if type(reachable) == "string" then
-		msg = (reachable == "b") and "" or "Device broken."
-		reachable = false
-		status = 2
+		if reachable == "broken" then
+			msg = "Device broken."
+			status = 2
+		end	
 	elseif not reachable then
 		msg = "Can't Detect Device"
 		status = 2
@@ -2779,7 +2780,7 @@ local function BroadcastHandler(msg_subclass, result)
 --log.Debug("Existing device %s mapping to %d.", (result.deviceId or "??"), vdevID)
 					local v = mapItem(result, vdevID)
 					if v.variable then
-log.Debug("Updating variable %s, value %s.", (v.variable or "??"), (v.value or ""))					
+--log.Debug("Updating variable %s, value %s.", (v.variable or "??"), (v.value or ""))					
 						luup.variable_set (v.service, v.variable, v.value or "", vdevID)
 						if v.variable == "Tripped" and v.tripvalue then
 							-- Handle sensor tripping
@@ -2822,7 +2823,7 @@ log.Debug("Updating variable %s, value %s.", (v.variable or "??"), (v.value or "
 --log.Debug ("Device %s [%d] reachable: Result %s", result._id, vdevID , tostring(result.reachable) or "")
 						set_device_reachable_status(result.reachable, vdevID)
 					elseif result.status ~= nil then
-						set_device_reachable_status(result.status ~= "broken", vdevID)
+						set_device_reachable_status(result.status, vdevID)
 					else
 --log.Debug ("Device Updated: Result " .. tostring(json.encode(result) or""))
 					end
@@ -3000,7 +3001,7 @@ local function MethodHandler(method,result)
 					vdevID = vdevID + OFFSET
 					-- Look for status updates we might have missed.
 					if edev.status == "broken" then
-						set_device_reachable_status("b", vdevID)
+						set_device_reachable_status("broken", vdevID)
 					elseif edev.reachable ~= nil then
 						set_device_reachable_status(edev.reachable, vdevID)
 					end
@@ -3148,7 +3149,7 @@ local function MethodHandler(method,result)
 				-- See if we know the device
 				local vdevID = deviceMap[eitem.deviceId]
 				if vdevID then
-log.Debug("Existing device "..eitem.deviceId.. " mapping to "..vdevID)
+--log.Debug("Existing device "..eitem.deviceId.. " mapping to "..vdevID)
 					-- Get the device details to add states to.
 					local device = nil
 					for _, dev in pairs(EzloData.Vera.devices) do
