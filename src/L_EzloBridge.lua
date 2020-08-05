@@ -43,6 +43,7 @@ ABOUT = {
 --				Display Can't Detect Device message if hub shows as unreachable.
 -- 1.02b		Handle broken device status. (Message shows as Cannot reach or broken)
 -- 				Fixed issue for unwanted State variables created for Ezlo device items we want to ignore.
+--				Fixed duplicate creation of CurrentTemperature.
 
 -- To do's: 
 -- 		better reconnect handler to deal with expired token (did not have it expire yet to test).
@@ -116,7 +117,7 @@ local SID = {
 	sec_sensor 		= "urn:micasaverde-com:serviceId:SecuritySensor1",
 	gen_sensor		= "urn:micasaverde-com:serviceId:GenericSensor1",
 	hum_sensor		= "urn:micasaverde-com:serviceId:HumiditySensor1",
-	temp_sensor		= "urn:micasaverde-com:serviceId:TemperatureSensor1",
+	temp_sensor		= "urn:upnp-org:serviceId:TemperatureSensor1",
 	light_sensor	= "urn:micasaverde-com:serviceId:LightSensor1",
 	had				= "urn:micasaverde-com:serviceId:HaDevice1",
 	hag				= "urn:micasaverde-com:serviceId:HomeAutomationGateway1",
@@ -909,7 +910,7 @@ local EzloDeviceMapping = {
 			category_num = 16
 	},
 	temperature = {
-			device_type = "urn:schemas-micasaverde-com:device:TemperatureSensor:1", 
+			device_type = "urn:schemas-upnp-org:service:TemperatureSensor:1", 
 			device_file = "D_TemperatureSensor1.xml", 
 			device_json = "D_TemperatureSensor1.json", 
 			category_num = 17
