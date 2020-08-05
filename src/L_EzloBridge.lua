@@ -1,6 +1,6 @@
 ABOUT = {
   NAME          = "EzloBridge",
-  VERSION       = "1.01b",
+  VERSION       = "1.02b",
   DESCRIPTION   = "EzloBridge plugin for openLuup",
   AUTHOR        = "@reneboer",
   COPYRIGHT     = "(c) 2013-2020 AKBooer and reneboer",
@@ -41,6 +41,8 @@ ABOUT = {
 --				Changes SID/device type to rboer.
 --				Added periodic full pull of devices and items for full status refresh.
 --				Display Can't Detect Device message if hub shows as unreachable.
+-- 1.02b		Handle broken device status. (Message shows as Cannot reach or broken)
+-- 				Fixed issue for unwanted State variables created for Ezlo device items we want to ignore.
 
 -- To do's: 
 -- 		better reconnect handler to deal with expired token (did not have it expire yet to test).
@@ -734,7 +736,6 @@ Not (fully) supported:
 ]]
 local EzloDeviceMapping = {
 	dimmable_light = {
-			states = { },
 			device_type = "urn:schemas-upnp-org:device:DimmableLight:1", 
 			device_file = "D_DimmableLight1.xml", 
 			device_json = "D_DimmableLight1.json", 
@@ -745,7 +746,6 @@ local EzloDeviceMapping = {
 			dimmable_colored = {subcategory_num = 4}
 	},
 	switch = {
-			states = { },
 			device_type = "urn:schemas-upnp-org:device:BinaryLight:1", 
 			device_file = "D_BinaryLight1.xml", 
 			device_json = "D_BinaryLight1.json", 
@@ -758,7 +758,6 @@ local EzloDeviceMapping = {
 			relay = {subcategory_num = 8}
 	},	
 	garage_door = {
-			states = { },
 			device_type = "urn:schemas-upnp-org:device:BinaryLight:1", 
 			device_file = "D_BinaryLight1.xml", 
 			device_json = "D_GarageDoor1.json", 
@@ -766,7 +765,6 @@ local EzloDeviceMapping = {
 			subcategory_num = 5
 		},
 	security_sensor = {
-			states = { },
 			device_type = "urn:schemas-micasaverde-com:device:GenericSensor:1", 
 			device_file = "D_GenericSensor1.xml", 
 			device_json = "D_GenericSensor1.json", 
@@ -839,7 +837,6 @@ local EzloDeviceMapping = {
 			}
 	},
 	hvac = {
-			states = { },
 			device_type = "urn:schemas-upnp-org:device:HVAC_ZoneThermostat:1", 
 			device_file = "D_HVAC_ZoneThermostat1.xml", 
 			device_json = "D_HVAC_ZoneThermostat1.json", 
@@ -854,14 +851,12 @@ local EzloDeviceMapping = {
 	},
 	camera = nil, -- No Ezlo equivalent category_num = 6
 	door_lock = { 
-			states = { },
 			device_type = "urn:schemas-micasaverde-com:device:DoorLock:1", 
 			device_file = "D_DoorLock1.xml", 
 			device_json = "D_DoorLock1.json", 
 			category_num = 7
 	},
 	window_cov = {
-			states = { },
 			device_type = "urn:schemas-micasaverde-com:device:WindowCovering:1", 
 			device_file = "D_WindowCovering1.xml", 
 			device_json = "D_WindowCovering1.json", 
@@ -869,7 +864,6 @@ local EzloDeviceMapping = {
 			window_cov = { subcategory_num = 1 }
 	},
 	remote_control = {
-			states = { },
 			device_type = "urn:schemas-micasaverde-com:device:RemoteControl:1", 
 			device_file = "D_RemoteControl1.xml", 
 			device_json = "D_SceneController1.json", 
@@ -877,7 +871,6 @@ local EzloDeviceMapping = {
 	},
 	ir_transmitter = nil, --  No Ezlo equivalent category_num = 10
 	generic_io = {
-			states = { },
 			device_type = "urn:schemas-micasaverde-com:device:GenericIO:1",
 			device_file = "D_GenericIO1.xml", 
 			device_json = "D_GenericIO1.json", 
@@ -886,49 +879,42 @@ local EzloDeviceMapping = {
 			repeater = { subcategory_num = 2 }
 	},
 	generic_sensor = {
-			states = { },
 			device_type = "urn:schemas-micasaverde-com:device:GenericSensor:1", 
 			device_file = "D_GenericSensor1.xml", 
 			device_json = "D_GenericSensor1.json", 
 			category_num = 12
 	},
 	serial_port = {
-			states = { },
 			device_type = "urn:micasaverde-org:device:SerialPort:1", 
 			device_file = "D_SerialPort1.xml", 
 			device_json = "generic_device.json", -- a guess.
 			category_num = 13
 	},
 	scene_controller = {
-			states = { },
 			device_type = "urn:schemas-micasaverde-com:device:SceneController:1", 
 			device_file = "D_SceneController1.xml", 
 			device_json = "D_SceneController1.json", 
 			category_num = 14
 	},
 	av = {	-- Only has a load of actions
-			states = { },
 			device_type = "urn:schemas-micasaverde-com:device:avmisc:1", 
 			device_file = "D_AvMisc1.xml", 
 			device_json = "generic_device.json", -- a guess. 
 			category_num = 15
 	},
 	humidity = {
-			states = { },
 			device_type = "urn:schemas-micasaverde-com:device:HumiditySensor:1", 
 			device_file = "D_HumiditySensor1.xml", 
 			device_json = "D_HumiditySensor1.json", 
 			category_num = 16
 	},
 	temperature = {
-			states = { },
 			device_type = "urn:schemas-micasaverde-com:device:TemperatureSensor:1", 
 			device_file = "D_TemperatureSensor1.xml", 
 			device_json = "D_TemperatureSensor1.json", 
 			category_num = 17
 	},
 	light_sensor = {
-			states = { },
 			device_type = "urn:schemas-micasaverde-com:device:LightSensor:1", 
 			device_file = "D_LightSensor1.xml", 
 			device_json = "D_LightSensor1.json", 
@@ -937,7 +923,6 @@ local EzloDeviceMapping = {
 	z_wave_interface = nil,-- category_num = 19
 	insteon_interface = nil,-- category_num = 20
 	power_meter = {
-			states = { },
 			device_type = "urn:schemas-micasaverde-com:device:PowerMeter:1", 
 			device_file = "D_PowerMeter1.xml", 
 			device_json = "D_PowerMeter1.json", 
@@ -946,14 +931,12 @@ local EzloDeviceMapping = {
 	alarm_panel = nil,-- category_num = 22
 	alarm_partition = nil,-- category_num = 23
 	siren = {
-			states = { },
 			device_type = "urn:schemas-micasaverde-com:device:Siren:1", 
 			device_file = "D_Siren1.xml", 
 			device_json = "D_Siren1.json", 
 			category_num = 24,
 	},
 	weather = {	-- Baromethic Pressure, map to generic sensor
-			states = { },
 			device_type = "urn:schemas-micasaverde-com:device:GenericSensor:1", 
 			device_file = "D_GenericSensor1.xml", 
 			device_json = "D_GenericSensor1.json", 
@@ -961,28 +944,24 @@ local EzloDeviceMapping = {
 	},
 	philips_controller = nil,-- category_num = 26
 	appliance = { -- map to generic IO
-			states = { },
 			device_type = "urn:schemas-micasaverde-com:device:GenericIO:1",
 			device_file = "D_GenericIO1.xml", 
 			device_json = "D_GenericIO1.json", 
 			category_num = 27
 	},
 	uv_sensor = {
-			states = { },
 			device_type = "urn:schemas-micasaverde-com:device:LightSensor:1", 
 			device_file = "D_LightSensor1.xml", 
 			device_json = "D_UVSensor1.json", 
 			category_num = 28
 	},
 	mouse_trap = {
-			states = { },
 			device_type = "urn:schemas-micasaverde-com:device:MouseTrap:1", 
 			device_file = "D_MouseTrap1.xml", 
 			device_json = "D_MouseTrap1.json", 
 			category_num = 29
 	},
 	doorbell = { 
-			states = { },
 			device_type = "urn:schemas-micasaverde-com:device:Doorbell:1", 
 			device_file = "D_Doorbell1.xml", 
 			device_json = "D_Doorbell1.json", 
@@ -996,21 +975,18 @@ local EzloDeviceMapping = {
 			category_num = 31
 	},
 	flow_meter = {
-			states = { },
 			device_type = "urn:schemas-micasaverde-com:device:GenericSensor:1", 
 			device_file = "D_GenericSensor1.xml", 
 			device_json = "D_GenericSensor1.json", 
 			category_num = 33
 	},
 	voltage_sensor = {
-			states = { },
 			device_type = "urn:schemas-micasaverde-com:device:GenericSensor:1", 
 			device_file = "D_GenericSensor1.xml", 
 			device_json = "D_GenericSensor1.json", 
 			category_num = 34
 	},
 	level_sensor = {	-- Vera does not have level sensors. Map to GenericSensor.
-			states = { },
 			device_type = "urn:schemas-micasaverde-com:device:GenericSensor:1", 
 			device_file = "D_GenericSensor1.xml", 
 			device_json = "D_GenericSensor1.json", 
@@ -1037,7 +1013,6 @@ local EzloDeviceMapping = {
 			capacity = {} -- Weight
 	},
 	state_sensor = {
-			states = { },
 			device_type = "urn:schemas-micasaverde-com:device:GenericSensor:1", 
 			device_file = "D_GenericSensor1.xml", 
 			device_json = "D_GenericSensor1.json", 
@@ -1049,7 +1024,6 @@ local EzloDeviceMapping = {
 	},
 	["clock"] = nil,
 	unknown = {  -- If device is not recognized by Ezlo/ATHOM
-			states = { },
 			device_type = "urn:schemas-micasaverde-com:device:GenericSensor:1", 
 			device_file = "D_GenericSensor1.xml", 
 			device_json = "D_GenericSensor1.json", 
@@ -2278,7 +2252,20 @@ end
 
 -- Set a device as reachable or not
 local function set_device_reachable_status(reachable, devID)
-	luup.device_message(devID, (reachable and -1 or 2), (reachable and "" or "Can't Detect Device"), 0, ABOUT.NAME)
+	local msg = ""
+	local status = -1
+log.Debug("set_device_reachable_status, device %s, reachable %s", tostring(devID), tostring(reachable))	
+	if type(reachable) == "string" then
+		msg = (reachable == "b") and "" or "Device broken."
+		reachable = false
+		status = 2
+	elseif not reachable then
+		msg = "Can't Detect Device"
+		status = 2
+	end
+	var.SetAttribute("status", status, devID)
+	luup.device_message(devID, status, msg, 0, ABOUT.NAME)
+	return status
 end
 
 -- create a new device, cloning the remote one
@@ -2833,6 +2820,8 @@ log.Debug("Updating variable %s, value %s.", (v.variable or "??"), (v.value or "
 					--"result":{"_id":"5eec9729124c4111c7e4d113","reachable":false,"serviceNotification":false,"syncNotification":false}
 --log.Debug ("Device %s [%d] reachable: Result %s", result._id, vdevID , tostring(result.reachable) or "")
 						set_device_reachable_status(result.reachable, vdevID)
+					elseif result.status ~= nil then
+						set_device_reachable_status(result.status ~= "broken", vdevID)
 					else
 --log.Debug ("Device Updated: Result " .. tostring(json.encode(result) or""))
 					end
@@ -3009,7 +2998,9 @@ local function MethodHandler(method,result)
 				if vdevID then
 					vdevID = vdevID + OFFSET
 					-- Look for status updates we might have missed.
-					if edev.reachable ~= nil then
+					if edev.status == "broken" then
+						set_device_reachable_status("b", vdevID)
+					elseif edev.reachable ~= nil then
 						set_device_reachable_status(edev.reachable, vdevID)
 					end
 					if edev.armed ~= nil then
@@ -3051,36 +3042,39 @@ local function MethodHandler(method,result)
 				reverseDeviceMap[vdevID] = {}
 				reverseDeviceMap[vdevID].id = edev._id
 				reverseDeviceMap[vdevID].items = {}
-				local mapidx = EzloDeviceMapping[edev.category]
-				local map = mapidx
-				if mapidx and edev.subcategory ~= "" then
-					-- If we have subcategory definition overrule on base map. Make copy first.
-					local smap = mapidx[edev.subcategory]
-					if smap then
-						map = utils.DeepCopy(mapidx)
-						if smap.device_type	then map.device_type = smap.device_type end
-						if smap.device_json	then map.device_json = smap.device_json end
-						if smap.device_file	then map.device_file = smap.device_file end
-						if smap.subcategory_num	then map.subcategory_num = smap.subcategory_num end
-						if smap.states	then map.states = smap.states end
-					end
-				end
-				if map then
+				local cmap = EzloDeviceMapping[edev.category]
+				if cmap then
+					local map = {}
+					if cmap.device_type	then map.device_type = cmap.device_type end
+					if cmap.device_json	then map.device_json = cmap.device_json end
+					if cmap.device_file	then map.device_file = cmap.device_file end
+					if cmap.subcategory_num	then map.subcategory_num = cmap.subcategory_num end
+					if edev.subcategory ~= "" then
+						-- If we have subcategory definition overrule on base map.
+						local smap = cmap[edev.subcategory]
+						if smap then
+							if smap.device_type	then map.device_type = smap.device_type end
+							if smap.device_json	then map.device_json = smap.device_json end
+							if smap.device_file	then map.device_file = smap.device_file end
+							if smap.subcategory_num	then map.subcategory_num = smap.subcategory_num end
+						end
+					end	
+					-- Build Vera like device structure
 					local vdev = {}
 					local parentId = edev.parentDeviceId == "" and 1 or 1 -- Later to see if can have other parent.
-					vdev.id				= vdevID
-					vdev.category_num	= map.category_num
-					vdev.device_type	= map.device_type
-					vdev.internal_id	= edev._id
-					vdev.invisible		= false
-					vdev.device_json	= map.device_json
-					vdev.name			= edev.name
-					vdev.device_file	= map.device_file
-					vdev.impl_file		= '' -- Not used
-					vdev.id_parent		= parentId
-					vdev.room			= tostring(roomMap[edev.roomId] or 0)
-					vdev.states			= {}
-					vdev.subcategory_num= map.subcategory_num or 0
+					vdev.id = vdevID
+					vdev.category_num = map.category_num
+					vdev.device_type = map.device_type
+					vdev.internal_id = edev._id
+					vdev.invisible = false
+					vdev.device_json = map.device_json
+					vdev.name = edev.name
+					vdev.device_file = map.device_file
+					vdev.impl_file = '' -- Not used
+					vdev.id_parent = parentId
+					vdev.room = tostring(roomMap[edev.roomId] or 0)
+					vdev.states = {}
+					vdev.subcategory_num = map.subcategory_num or 0
 					-- Armed is set here and not as item, so add that state if needed
 					if edev.armed ~= nil then
 						local val = edev.armed and "1" or "0"
@@ -3093,7 +3087,9 @@ local function MethodHandler(method,result)
 					end
 					-- See if device is reachable, we add our onw flag as status cannot be used.
 					vdev.status = -1
-					if edev.reachable ~= nil then
+					if edev.status == "broken" then
+						vdev.status = 2
+					elseif edev.reachable ~= nil then
 						vdev.status = (edev.reachable and -1 or 2)
 					end
 					-- Add to list
@@ -3115,8 +3111,8 @@ local function MethodHandler(method,result)
 						if parent_id then
 							-- look up Vera device details
 							for _, dev in pairs(EzloData.Vera.devices) do
-								if vdev.id == vdevID then
-									vdev.id_parent = parent_id
+								if dev.id == vdevID then
+									dev.id_parent = parent_id
 									break
 								end
 							end
@@ -3151,7 +3147,7 @@ local function MethodHandler(method,result)
 				-- See if we know the device
 				local vdevID = deviceMap[eitem.deviceId]
 				if vdevID then
---log.Debug("Existing device "..eitem.deviceId.. " mapping to "..vdevID)
+log.Debug("Existing device "..eitem.deviceId.. " mapping to "..vdevID)
 					-- Get the device details to add states to.
 					local device = nil
 					for _, dev in pairs(EzloData.Vera.devices) do
@@ -3164,6 +3160,8 @@ local function MethodHandler(method,result)
 						local state = {}
 						-- Map Ezlo item to Vera service Variable.
 						local vstate = mapItem(eitem, vdevID)
+--log.Debug("Item: %s",json.encode(eitem))						
+--log.Debug("Mapped State: %s",json.encode(vstate))						
 						-- If item has getter we should read the value to a Vera state variable.
 						if eitem.hasGetter then
 							if vstate then
@@ -3204,20 +3202,22 @@ local function MethodHandler(method,result)
 --										ts.variable = "LastTrip"
 --										ts.value = lt
 --										table.insert(device.states, ts)
-									end	
+									end
 								else
-									-- We don't know what it is, make generic sensor (we can use this rather then defining all items)
-									state.id = #device.states + 1
-									state.service = SID.gen_sensor 
-									state.variable = "CurrentLevel"
-									state.value = eitem.valueFormatted or "??"
-									if EzloData.is_ready then
-										-- Refresh values
-										var.SetString(state.variable, state.value, state.service, vdevID + OFFSET)
-									else
-										table.insert(device.states, state)
-									end	
+									log.Info("No service mapping for device %s, name %s. Ignoring.", eitem.deviceId, eitem.name)
 								end
+							else
+								-- We don't know what it is, make generic sensor (we can use this rather then defining all items)
+								state.id = #device.states + 1
+								state.service = SID.gen_sensor 
+								state.variable = "CurrentLevel"
+								state.value = eitem.valueFormatted or "??"
+								if EzloData.is_ready then
+									-- Refresh values
+									var.SetString(state.variable, state.value, state.service, vdevID + OFFSET)
+								else
+									table.insert(device.states, state)
+								end	
 							end
 							-- We have many state types that do not map to Vera so we use a generic sensor CurrentLevel
 							-- Put some extra info in DisplayLine1 for the user.
