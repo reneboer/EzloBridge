@@ -9,7 +9,8 @@ To-do's:
 - Test expired token handling
 - Better lock support.
 
-Note that you need to have the bitop Lua library installed:
+Note that you need to have the bitop and cjson Lua library installed:
 ```
 sudo apt-get install lua-bitop
+sudo apt-get install lua-cjson
 ``` 
