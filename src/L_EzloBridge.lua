@@ -1,8 +1,8 @@
 ABOUT = {
   NAME          = "EzloBridge",
-  VERSION       = "1.02b",
+  VERSION       = "1.03",
   DESCRIPTION   = "EzloBridge plugin for openLuup",
-  AUTHOR        = "@reneboer",
+  AUTHOR        = "reneboer",
   COPYRIGHT     = "(c) 2013-2020 AKBooer and reneboer",
   DOCUMENTATION = "https://github.com/reneboer/EzloBridge/wiki",
   DEBUG         = false,
@@ -22,55 +22,45 @@ ABOUT = {
   limitations under the License.
 ]]
 }
-
--- bi-directional monitor/control link to remote Ezlo system
--- NB. this version ONLY works in openLuup
--- it plays with action calls and device creation in ways that you can't do in Vera,
--- in order to be able to implement ANY command action and 
--- also to logically group device numbers for remote machine device clones.
-
--- 2020-05-30   Using VeraBridge 2020.04.30
--- 2020.06.06b	Implement Ezlo as Hub to bridge
--- 2020.06.23b	Added manufacturer and model if available from Ezlo.
---				Updated HVAC operations
---				Setup child devices correctly by setting Vera parent ID.
--- 2020.06.26b	Fixed adding manufacturer and model if available from Ezlo.
--- 1.01b		Added logging, variables, json and utils modules.
---				Log level is a user setting.
---				Remove rooms, scenes and device ID from stored mapping.
---				Changes SID/device type to rboer.
---				Added periodic full pull of devices and items for full status refresh.
---				Display Can't Detect Device message if hub shows as unreachable.
--- 1.02b		Handle broken device status. (Message shows as Cannot reach or broken)
--- 				Fixed issue for unwanted State variables created for Ezlo device items we want to ignore.
---				Fixed duplicate creation of CurrentTemperature.
---				Display Device Broken message if hub shows as broken
-
--- To do's: 
--- 		better reconnect handler to deal with expired token (did not have it expire yet to test).
---		command queue during lost connection.
---		better support of locks
---		Make it work on Vera
---		Handle device removed or added (restart connection)
 --[[
-This is what the app is sending for each time the list is refreshed (and that is often)
-2020-06-12 17:01:14.876557 INFO : Received new command: hub.devices.list
-2020-06-12 17:01:15.029776 INFO : Received new command: hub.items.list
-2020-06-12 17:01:15.107237 INFO : Received new command: hub.favorite.list
-{'method': 'hub.favorite.list', 'id': 'hub.favorite.list', 'result': {'favorites': {'devices': [], 'items': [], 'rules': []}}, 'error': None}
-From Athom:
-{"method":"hub.favorite.list","result":null"error":{"code":-32602,"message":" *request* doesn't exist, have invalid type or empty"},"id":"hub.favorite.list"}
 
-2020-06-12 17:01:15.111507 INFO : Received new command: hub.gateways.list
-{'method': 'hub.gateways.list', 'result': {'gateways': [{'settings': '', 'ready': True, 'label': 'zwave', 'name': 'zwave', 'pluginId': 'zwave', '_id': 'zwave'}, {'settings': '', 'ready': True, 'label': 'cloud_devices', 'name': 'cloud_devices', 'pluginId': 'cloud_devices', '_id': 'cloud_devices'}]}, 'error': None, 'id': 'hub.gateways.list'}
+Bi-directional monitor/control link to remote Ezlo system
 
-2020-06-12 17:01:15.427985 INFO : Received new command: hub.room.list
+NB. this version ONLY works in openLuup
+It plays with action calls and device creation in ways that you can't do in Vera,
+in order to be able to implement ANY command action and 
+also to logically group device numbers for remote machine device clones.
 
+2020-05-30		Using VeraBridge 2020.04.30
+2020.06.06b		Implement Ezlo as Hub to bridge
+2020.06.23b		Added manufacturer and model if available from Ezlo.
+				Updated HVAC operations
+				Setup child devices correctly by setting Vera parent ID.
+2020.06.26b		Fixed adding manufacturer and model if available from Ezlo.
+1.01b			Added logging, variables, json and utils modules.
+				Log level is a user setting.
+				Remove rooms, scenes and device ID from stored mapping.
+				Changes SID/device type to rboer.
+				Added periodic full pull of devices and items for full status refresh.
+				Display Can't Detect Device message if hub shows as unreachable.
+1.02b			Handle broken device status. (Message shows as Cannot reach or broken)
+				Fixed issue for unwanted State variables created for Ezlo device items we want to ignore.
+				Fixed duplicate creation of CurrentTemperature.
+				Display Device Broken message if hub shows as broken
+1.03			Able to reconnect if VM running openLuup is restarted without needing a luup reload.
+				Changed items mapping to generic sensor to item name and not all the CurrentLevel.
+				Fix for SetArmed action as Ezlo changed value name.
+				Fix for scalar type variables.
+				Fix for action mapping funcitons.
+				Some logging fixes.
 
+To do's: 
+	better reconnect handler to deal with expired token (did not have it expire yet to test).
+	command queue during lost connection. (is this needed?)
+	better support of locks
+	Make it work on Vera
 
-{"id":"e62e13a0-849e-11ea-ab2d-b7c43c5254eb","method":"cloud.controller_abstracts_list","api":"1","params":{"version":-1}}
-
-Messages when hub is starting
+Messages when hub is starting. Normally at restart the WS connections is lost and a reconnect is triggered.
 {"id":"ui_broadcast","msg_subclass":"hub.gateway.updated","result":{"_id":"5ec3e5a4124c4114fb88839f","status":"starting"}}
 {"id":"ui_broadcast","msg_subclass":"hub.gateway.updated","result":{"_id":"5ec3e5a4124c4114fb88839f","status":"ready"}}
 
@@ -173,8 +163,8 @@ local function varAPI()
 		local value = _get(name, sid, device)
 		local num = tonumber(value,10)
 		if type(num) ~= "number" then
-			luup.log("var.GetNumber: wrong data type ("..type(value)..") for variable "..(name or "unknown"), 2)
-			return false
+			luup.log("var.GetNumber: wrong data type ("..type(value)..") for variable "..(name or "unknown").." device "..tostring(device)..", value found "..tostring(num), 2)
+			return -1
 		end
 		return num
 	end
@@ -735,6 +725,9 @@ Not (fully) supported:
 	- Camera is not supported
 	- Door Lock, only Lock/Unlock supported. PIN code handling is not
 	- HVAC not fully supported due to difference in the two platfoms
+	
+Look at devices in plugins\zwave\scripts\resource to see the items that go with a device.
+
 ]]
 local EzloDeviceMapping = {
 	dimmable_light = {
@@ -1047,43 +1040,45 @@ local EzloItemsMapping = {
 	acceleration_x_axis = {service = SID.gen_sensor, variable = "AccelerationXAxis"},
 	acceleration_y_axis = {service = SID.gen_sensor, variable = "AccelerationYAxis"},
 	acceleration_z_axis = {service = SID.gen_sensor, variable = "AccelerationZAxis"},
-	air_flow = {service = SID.gen_sensor, variable = "CurrentLevel"},
-	angle_position = {service = SID.gen_sensor, variable = "CurrentLevel"},
-	appliance_status = {service = SID.gen_sensor, variable = "CurrentLevel"}, 
+	air_flow = {service = SID.gen_sensor, variable = "AirFlow"},
+	angle_position = {service = SID.gen_sensor, variable = "AnglePosition"},
+	appliance_status = {service = SID.gen_sensor, variable = "ApplianceStatus"}, 
 	armed = {service = SID.sec_sensor, variable = "Armed"}, -- Is a value at the device level, not an item.
-	atmospheric_pressure = {service = SID.gen_sensor, variable = "CurrentLevel"},
-	aux_binary = {service = SID.gen_sensor, variable = "CurrentLevel"},
-	barometric_pressure = {service = SID.gen_sensor, variable = "CurrentLevel"},
+	atmospheric_pressure = {service = SID.gen_sensor, variable = "AtmosphericPressure"},
+	aux_binary = {service = SID.gen_sensor, variable = "AuxBinary"},
+	barometric_pressure = {service = SID.gen_sensor, variable = "BarometricPressure"},
 	barrier = {service = SID.sec_sensor, variable = "Tripped", tripvalue = "barrier_opened"}, -- Also has Setter
-	barrier_fail_events = {service = SID.gen_sensor, variable = "CurrentLevel"},
-	barrier_unattended_operation = {service = SID.gen_sensor, variable = "CurrentLevel"},
-	basal_metabolic_rate = {service = SID.gen_sensor, variable = "CurrentLevel"},
+	barrier_fail_events = {service = SID.gen_sensor, variable = "BarrierFailEvents"},
+	barrier_problem_sensors = {service = SID.sec_sensor, variable = "Tripped", tripvalue = "low_battery"},
+	barrier_state = {},-- only has Setter.
+	barrier_unattended_operation = {service = SID.gen_sensor, variable = "BarrierUnattendedOperation"},
+	basal_metabolic_rate = {service = SID.gen_sensor, variable = "BasalMetabolicRate"},
 	basic = {}, -- Not sure what it does, Ignoring , type boolean
 	battery = { service = SID.had, variable = "BatteryLevel" },
 	battery_backup = { service = SID.had, variable = "BatteryBackup"}, 
 	battery_charging_state = { service = SID.had, variable = "BatteryChargingState"},
 	battery_maintenance_state = { service = SID.had, variable = "BatteryMaintenanceState"}, 
-	blood_pressure = {service = SID.gen_sensor, variable = "CurrentLevel"}, 
-	body_mass = {service = SID.gen_sensor, variable = "CurrentLevel"}, 
-	body_mass_index = {service = SID.gen_sensor, variable = "CurrentLevel"}, 
+	blood_pressure = {service = SID.gen_sensor, variable = "BloodPressure"}, 
+	body_mass = {service = SID.gen_sensor, variable = "BodyMass"}, 
+	body_mass_index = {service = SID.gen_sensor, variable = "BodyMassIndex"}, 
 	boiler_water_temperature = {service = SID.temp_sensor, variable = "CurrentTemperature"}, 
 	button_state = {}, -- scalar {button_number = N, buttons_state = enum {"press_1_time", "held_down", "released"})
-	clock_state = {service = SID.gen_sensor, variable = "CurrentLevel"},
+	clock_state = {service = SID.gen_sensor, variable = "ClockState"},
 	co_alarm = {service = SID.sec_sensor, variable = "Tripped", tripvalue = "co_detected"}, 
 	co_level = {service = SID.gen_sensor, variable = "CurrentLevel"},
 	co2_alarm = {service = SID.sec_sensor, variable = "Tripped", tripvalue = "co2_detected"}, 
 	co2_level = {service = SID.gen_sensor, variable = "CurrentLevel"},
-	current = {service = SID.gen_sensor, variable = "CurrentLevel"},
+	current = {service = SID.gen_sensor, variable = "Current"},
 	daily_user_code_intervals = {}, -- ??
-	dew_point = {service = SID.gen_sensor, variable = "CurrentLevel"},
+	dew_point = {service = SID.gen_sensor, variable = "DewPoint"},
 	digital_input_state = {}, -- ??
 --	dimmer = {service = SID.dimming, variable = "LoadLevelStatus"},
 	dimmer = {service = SID.dimming, variable = "LoadLevelTarget"},
 	dimmer_down = {}, -- int (action)
 	dimmer_stop = {}, -- int (action)
 	dimmer_up = {}, -- int (action)
-	direction = {service = SID.gen_sensor, variable = "CurrentLevel"},
-	distance = {service = SID.gen_sensor, variable = "CurrentLevel"},
+	direction = {service = SID.gen_sensor, variable = "Direction"},
+	distance = {service = SID.gen_sensor, variable = "Distance"},
 	domestic_hot_water_temperature = {service = SID.temp_sensor, variable = "CurrentTemperature"},
 	door_lock = {}, -- unsecured, unsecured_with_timeout, unsecured_for_inside, unsecured_for_inside_with_timeout, unsecured_for_outside, unsecured_for_outside_with_timeout, unknown, secured
 	dust_in_device = {service = SID.sec_sensor, variable = "DustInDevice"},
@@ -1095,99 +1090,103 @@ local EzloItemsMapping = {
 	electric_meter_kvar = {service = SID.energy, variable = "KVAR"},
 	electric_meter_kvarh = {service = SID.energy, variable = "KVARH"},
 	electric_meter_kwh = {service = SID.energy, variable = "KWH"},
-	electric_meter_pulse = {service = SID.energy, variable = "Pule"},
+	electric_meter_pulse = {service = SID.energy, variable = "Pulse"},
 	electric_meter_volt = {service = SID.energy, variable = "Volts"},
 	electric_meter_watt = {service = SID.energy, variable = "Watts"},
 	electrical_conductivity = {service = SID.energy, variable = "ElectricalConductivity"},
 	electrical_resistance = {service = SID.energy, variable = "ElectricalResistance"},
 	emergency_shutoff = {}, -- ??
+	entered_code_status =  {}, -- ??
 	exhaust_temperature = {service = SID.temp_sensor, variable = "CurrentTemperature"},
-	fat_mass = {service = SID.gen_sensor, variable = "CurrentLevel"},
-	formaldehyde_level = {service = SID.gen_sensor, variable = "CurrentLevel"},
+	fat_mass = {service = SID.gen_sensor, variable = "FatMass"},
+	formaldehyde_level = {service = SID.gen_sensor, variable = "FormaldehydeLevel"},
 	freeze_alarm = {service = SID.sec_sensor, variable = "Tripped", tripvalue = "freeze_detected"}, 
-	frequency = {service = SID.gen_sensor, variable = "CurrentLevel"}, 
+	frequency = {service = SID.gen_sensor, variable = "Frequency"}, 
 	gas_alarm = {service = SID.sec_sensor, variable = "Tripped", tripvalue = "gas_detected"}, -- ??
 	glass_breakage_alarm = {service = SID.sec_sensor, variable = "Tripped", tripvalue = "glass_breakage"}, 
-	goto_favorite = {service = SID.gen_sensor, variable = "CurrentLevel"}, 
-	heat_rate = {service = SID.gen_sensor, variable = "CurrentLevel"},
+	goto_favorite = {}, -- Only has Setter.
 	heat_alarm = {service = SID.sec_sensor, variable = "Tripped", tripvalue = "overheat_detected"}, 
-	heat_rate_lf_hf_ratio = {service = SID.gen_sensor, variable = "CurrentLevel"},
-	humidity = {service = SID.hum_sensor, variable = "CurrentLevel"},
-	hw_state = {service = SID.gen_sensor, variable = "CurrentLevel"},
+	heat_rate = {service = SID.gen_sensor, variable = "HeatRate"},
+	heat_rate_lf_hf_ratio = {service = SID.gen_sensor, variable = "HeatRateLfHfRatio"},
+	humidity = {service = SID.hum_sensor, variable = "Humidity"},
+	hw_state = {service = SID.gen_sensor, variable = "HwState"},
 	intrusion_alarm = {service = SID.sec_sensor, variable = "Tripped", tripvalue = "intrusion"},
 	keypad_state = {service = SID.door_lock, variable = "Status"},
 	light_alarm = {service = SID.sec_sensor, variable = "Tripped"},
-	light_color_transition = {service = SID.gen_sensor, variable = "CurrentLevel"},
-	load_error_state = {service = SID.gen_sensor, variable = "CurrentLevel"},
+	light_color_transition = {service = SID.gen_sensor, variable = "LightColorTransition"},
+	load_error_state = {service = SID.gen_sensor, variable = "LoadErrorState"},
 	lock_operation = {service = SID.door_lock, variable = "Status"}, -- needs details
-	loudness = {service = SID.gen_sensor, variable = "CurrentLevel"},
-	lux = {service = SID.light_sensor, variable = "CurrentLevel"},
-	maintenance_state = {service = SID.gen_sensor, variable = "CurrentLevel"},
-	master_water_valve_current_alarm = {service = SID.gen_sensor, variable = "CurrentLevel"},
-	master_water_valve_short_circuit = {service = SID.gen_sensor, variable = "CurrentLevel"},
-	master_water_valve_state = {service = SID.gen_sensor, variable = "CurrentLevel"}, -- maybe switch like. Can have Setter
+	loudness = {service = SID.gen_sensor, variable = "Loudness"},
+	lux = {service = SID.light_sensor, variable = "Lux"},
+	maintenance_state = {service = SID.gen_sensor, variable = "MaintenanceState"},
+	master_code = {service = SID.gen_sensor, variable = "MasterCode"},
+	master_code_state = {service = SID.gen_sensor, variable = "MasterCodeState"},
+	master_water_valve_current_alarm = {service = SID.gen_sensor, variable = "MasterWaterValveCurrentAlarm"},
+	master_water_valve_short_circuit = {service = SID.gen_sensor, variable = "MasterWaterValveShortCircuit"},
+	master_water_valve_state = {service = SID.gen_sensor, variable = "MasterWaterValveState"}, -- maybe switch like. Can have Setter
 	meter_reset = {}, -- Action only 
-	methane_density = {service = SID.gen_sensor, variable = "CurrentLevel"},
-	moisture = {service = SID.gen_sensor, variable = "CurrentLevel"},
+	methane_density = {service = SID.gen_sensor, variable = "MethaneDensity"},
+	moisture = {service = SID.gen_sensor, variable = "Moisture"},
 	moisture_alarm = {service = SID.sec_sensor, variable = "Tripped", tripvalue = "moisture_detected"},
-	motion = {service = SID.gen_sensor, variable = "CurrentLevel"},
-	motion_status = {service = SID.gen_sensor, variable = "CurrentLevel"},
-	muscle_mass = {service = SID.gen_sensor, variable = "CurrentLevel"},
+	motion = {service = SID.gen_sensor, variable = "Motion"},
+	motion_status = {service = SID.gen_sensor, variable = "MotionStatus"},
+	muscle_mass = {service = SID.gen_sensor, variable = "MuscleMass"},
 	outside_temperature = {service = SID.temp_sensor, variable = "CurrentTemperature"},
 	over_current_state = {service = SID.sec_sensor, variable = "Tripped", tripvalue = "over_current_detected"},
 	over_load_state = {service = SID.sec_sensor, variable = "Tripped", tripvalue = "over_load_detected"},
 	over_voltage_state = {service = SID.sec_sensor, variable = "Tripped", tripvalue = "over_voltage_detected"},
-	particulate_matter_2_dot_5 = {service = SID.gen_sensor, variable = "CurrentLevel"},
-	particulate_matter_10 = {service = SID.gen_sensor, variable = "CurrentLevel"},
-	pest_control = {service = SID.gen_sensor, variable = "CurrentLevel"},
-	position = {service = SID.gen_sensor, variable = "CurrentLevel"},
+	particulate_matter_2_dot_5 = {service = SID.gen_sensor, variable = "ParticulateMatter2Dot5"},
+	particulate_matter_10 = {service = SID.gen_sensor, variable = "ParticulateMatter10"},
+	pest_control = {service = SID.gen_sensor, variable = "PestControl"},
+	position = {service = SID.gen_sensor, variable = "Position"},
 --	power = {service = SID.energy, variable = "Watts"},
 	power = {}, -- Ignore for now. Seems dup for electric_meter_watt
-	power_state = {service = SID.gen_sensor, variable = "CurrentLevel"},
+	power_state = {service = SID.gen_sensor, variable = "PowerState"},
 	power_surge_state = {service = SID.sec_sensor, variable = "Tripped", tripvalue = "power_surge_detected"}, -- Is a guessed value
-	product_moving_status = {service = SID.gen_sensor, variable = "CurrentLevel"},
+	product_moving_status = {service = SID.gen_sensor, variable = "ProductMovingStatus"},
 	program_failures = {service = SID.sec_sensor, variable = "Tripped", tripvalue = "failed"},
-	program_status = {service = SID.gen_sensor, variable = "CurrentLevel"},
-	radon_concentration = {service = SID.gen_sensor, variable = "CurrentLevel"},
+	program_status = {service = SID.gen_sensor, variable = "ProgramStatus"},
+	radon_concentration = {service = SID.gen_sensor, variable = "RadonConcentration"},
 	rain_alarm = {service = SID.sec_sensor, variable = "Tripped", tripvalue = "rain"},
-	rain_rate = {service = SID.gen_sensor, variable = "CurrentLevel"},
-	relative_modulation_level = {service = SID.gen_sensor, variable = "CurrentLevel"}, 
-	remaining_time = {service = SID.gen_sensor, variable = "CurrentLevel"},
-	respiratory_rate = {service = SID.gen_sensor, variable = "CurrentLevel"}, 
-	rf_signal_strength = {service = SID.gen_sensor, variable = "CurrentLevel"}, 
+	rain_rate = {service = SID.gen_sensor, variable = "RainRate"},
+	relative_modulation_level = {service = SID.gen_sensor, variable = "RelativeModulationLevel"}, 
+	remaining_time = {service = SID.gen_sensor, variable = "RemainingTime"},
+	respiratory_rate = {service = SID.gen_sensor, variable = "RespiratoryRate"}, 
+	rf_signal_strength = {service = SID.gen_sensor, variable = "RfSignalStrength"}, 
 	rgb_color = {service = SID.color, variable = "CurrentColor"}, -- rgb variable handled in code.
-	rotation = {service = SID.gen_sensor, variable = "CurrentLevel"}, 
-	seismic_intensity = {service = SID.gen_sensor, variable = "CurrentLevel"}, 
+	rotation = {service = SID.gen_sensor, variable = "Rotation"}, 
 	security_threat = {}, -- Not sure what to do with this. Is on security sensors.
-	seismic_magnitude = {service = SID.gen_sensor, variable = "CurrentLevel"}, 
+	seismic_intensity = {service = SID.gen_sensor, variable = "SeismicIntensity"}, 
+	seismic_magnitude = {service = SID.gen_sensor, variable = "SeismicMagnitude"}, 
+	sensor_binary = {}, -- ?? need to see as there is no items code.
 	shutter_commands = {}, -- Actions only, for installation or so.
-	shutter_states = {service = SID.gen_sensor, variable = "CurrentLevel"}, -- Bit odd values, for installation or so.
+	shutter_states = {service = SID.gen_sensor, variable = "ShutterStates"}, -- Bit odd values, for installation or so.
 	siren_alarm = {service = SID.sec_sensor, variable = "Tripped", tripvalue = "siren"},
-	sleep_apnea = {service = SID.gen_sensor, variable = "CurrentLevel"}, 
-	sleep_stage = {service = SID.gen_sensor, variable = "CurrentLevel"}, 
+	sleep_apnea = {service = SID.gen_sensor, variable = "SleepApnea"}, 
+	sleep_stage = {service = SID.gen_sensor, variable = "SleepStage"}, 
 	smoke_alarm = {service = SID.sec_sensor, variable = "Tripped", tripvalue = "smoke_detected"},
-	smoke_density = {service = SID.gen_sensor, variable = "CurrentLevel"}, 
-	soil_humidity = {service = SID.gen_sensor, variable = "CurrentLevel"}, 
-	soil_reactivity = {service = SID.gen_sensor, variable = "CurrentLevel"}, 
-	soil_salinity = {service = SID.gen_sensor, variable = "CurrentLevel"}, 
+	smoke_density = {service = SID.gen_sensor, variable = "SmokeDensity"}, 
+	soil_humidity = {service = SID.gen_sensor, variable = "SoilHumidity"}, 
+	soil_reactivity = {service = SID.gen_sensor, variable = "SoilReactivity"}, 
+	soil_salinity = {service = SID.gen_sensor, variable = "SoilSalinity"}, 
 	soil_temperature = {service = SID.temp_sensor, variable = "CurrentTemperature"}, 
-	solar_radiation = {service = SID.gen_sensor, variable = "CurrentLevel"}, 
-	sound_list = {service = SID.gen_sensor, variable = "CurrentLevel"}, 
-	sound_playback = {service = SID.gen_sensor, variable = "CurrentLevel"}, 
-	sound_select = {service = SID.gen_sensor, variable = "CurrentLevel"}, 
-	sound_volume = {service = SID.gen_sensor, variable = "CurrentLevel"}, 
+	solar_radiation = {service = SID.gen_sensor, variable = "SolarRadiation"}, 
+	sound_list = {service = SID.gen_sensor, variable = "SoundList"}, 
+	sound_playback = {service = SID.gen_sensor, variable = "SoundPlayback"}, 
+	sound_select = {service = SID.gen_sensor, variable = "SoundSelect"}, 
+	sound_volume = {service = SID.gen_sensor, variable = "SoundVolume"}, 
 	sounding_mode = {service = SID.sec_sensor, variable = "Tripped", tripvalue = "audible"}, 
-	sw_state = {service = SID.gen_sensor, variable = "CurrentLevel"}, 
+	sw_state = {service = SID.gen_sensor, variable = "SwState"}, 
 	switch = {service = SID.switch_power, variable = "Status"}, 
 	tampering_cover_alarm = {service = SID.sec_sensor, variable = "TamperAlarm", convert=function(value) return value == "no_tampering_cover" and 1 or 0 end}, 
 	tampering_impact_alarm = {service = SID.sec_sensor, variable = "TamperImpactAlarm", convert=function(value) return value == "impact_detected" and 1 or 0 end}, 
 	tampering_invalid_code_alarm = {service = SID.sec_sensor, variable = "TamperCodeAlarm", convert=function(value) return value == "invalid_code" and 1 or 0 end}, 
 	tampering_move_alarm = {service = SID.sec_sensor, variable = "TamperMoveAlarm", convert=function(value) return value == "product_moved" and 1 or 0 end}, 
-	tank_capacity = {service = SID.gen_sensor, variable = "CurrentLevel"}, 
+	tank_capacity = {service = SID.gen_sensor, variable = "TankCapacity"}, 
 	target_temperature = {service = SID.temp_sensor, variable = "TargetTemperature"},
 	temp = {service = SID.temp_sensor, variable = "CurrentTemperature"}, 
-	temperature_changes = {service = SID.gen_sensor, variable = "CurrentLevel"}, 
-	test_state = {service = SID.gen_sensor, variable = "CurrentLevel"}, 
+	temperature_changes = {service = SID.gen_sensor, variable = "TemperatureChanges"}, 
+	test_state = {service = SID.gen_sensor, variable = "TestState"}, 
 	thermostat_fan_mode = {service = SID.hvac_fom, variable = "Mode", convert=function(value, devID) 
 			-- from Centralite_3157100: "fanmode_on", "fanmode_on_auto" ?
 			-- Ezlo thermostat_fan_mode Enums (get/set): 
@@ -1270,45 +1269,45 @@ local EzloItemsMapping = {
 	thermostat_setpoint = {service = SID.temp_setp, variable = "CurrentSetpoint"}, 
 	thermostat_setpoint_cooling = {service = SID.temp_setpc, variable = "CurrentSetpoint"}, 
 	thermostat_setpoint_heating = {service = SID.temp_setph, variable = "CurrentSetpoint"}, 
-	tide_level = {service = SID.gen_sensor, variable = "CurrentLevel"}, 
+	tide_level = {service = SID.gen_sensor, variable = "TideLevel"}, 
 	tilt = {service = SID.sec_sensor, variable = "Tripped", tripvalue = "tilt"}, 
-	time_period = {service = SID.gen_sensor, variable = "CurrentLevel"}, 
-	total_body_water = {service = SID.gen_sensor, variable = "CurrentLevel"}, 
+	time_period = {service = SID.gen_sensor, variable = "TimePeriod"}, 
+	total_body_water = {service = SID.gen_sensor, variable = "TotalBodyWater"}, 
 	ultraviolet = {service = SID.light_sensor, variable = "CurrentLevel"}, 
-	user_code_operation = {service = SID.gen_sensor, variable = "CurrentLevel"}, 
-	user_codes = {service = SID.gen_sensor, variable = "CurrentLevel"}, 
-	user_codes_scan_progress = {service = SID.gen_sensor, variable = "CurrentLevel"}, 
-	user_lock_operation = {service = SID.gen_sensor, variable = "CurrentLevel"}, 
-	velocity = {service = SID.gen_sensor, variable = "CurrentLevel"}, 
-	voc_level_status = {service = SID.gen_sensor, variable = "CurrentLevel"}, 
-	volatile_organic_compound_level = {service = SID.gen_sensor, variable = "CurrentLevel"}, 
-	voltage = {service = SID.gen_sensor, variable = "CurrentLevel"}, 
-	voltage_drop_drift_state = {service = SID.gen_sensor, variable = "CurrentLevel"}, 
-	water_acidity = {service = SID.gen_sensor, variable = "CurrentLevel"}, 
-	water_chlorine_level = {service = SID.gen_sensor, variable = "CurrentLevel"}, 
+	user_code_operation = {service = SID.gen_sensor, variable = "UserCodeOperation"}, 
+	user_codes = {service = SID.gen_sensor, variable = "UserCodes"}, 
+	user_codes_scan_progress = {service = SID.gen_sensor, variable = "UserCodesScanProgress"}, 
+	user_lock_operation = {service = SID.gen_sensor, variable = "UserLockOperation"}, 
+	velocity = {service = SID.gen_sensor, variable = "Velocity"}, 
+	voc_level_status = {service = SID.gen_sensor, variable = "VocLevelStatus"}, 
+	volatile_organic_compound_level = {service = SID.gen_sensor, variable = "VolatileOrganicCompoundLevel"}, 
+	voltage = {service = SID.gen_sensor, variable = "Voltage"}, 
+	voltage_drop_drift_state = {service = SID.gen_sensor, variable = "VoltageDropDriftState"}, 
+	water_acidity = {service = SID.gen_sensor, variable = "WaterAcidity"}, 
+	water_chlorine_level = {service = SID.gen_sensor, variable = "WaterChlorineLevel"}, 
 	water_filter_replacement_alarm = {service = SID.sec_sensor, variable = "Tripped", tripvalue = "????"}, 
-	water_flow = {service = SID.gen_sensor, variable = "CurrentLevel"}, 
+	water_flow = {service = SID.gen_sensor, variable = "WaterFlow"}, 
 	water_flow_alarm = {service = SID.sec_sensor, variable = "Tripped","????"}, 
 	water_leak_alarm = {service = SID.sec_sensor, variable = "Tripped", tripvalue = "water_leak_detected"}, 
 	water_level_alarm = {service = SID.sec_sensor, variable = "Tripped", tripvalue = "????"}, 
-	water_oxidation_reduction_potential = {service = SID.gen_sensor, variable = "CurrentLevel"}, 
-	water_pressure = {service = SID.gen_sensor, variable = "CurrentLevel"}, 
+	water_oxidation_reduction_potential = {service = SID.gen_sensor, variable = "WaterOxidationReductionPotential"}, 
+	water_pressure = {service = SID.gen_sensor, variable = "WaterPressure"}, 
 	water_pressure_alarm = {service = SID.sec_sensor, variable = "Tripped", tripvalue = "????"}, 
-	water_pump_state = {service = SID.gen_sensor, variable = "CurrentLevel"}, 
+	water_pump_state = {service = SID.gen_sensor, variable = "WaterPumpState"}, 
 	water_temperature = {service = SID.temp_sensor, variable = "CurrentTemperature"}, 
 	water_temperature_alarm = {service = SID.sec_sensor, variable = "Tripped", tripvalue = "????"}, 
 	water_valve_current_alarm = {service = SID.sec_sensor, variable = "Tripped", tripvalue = "????"}, 
-	water_valve_short_circuit = {service = SID.gen_sensor, variable = "CurrentLevel"}, 
-	water_valve_state = {service = SID.gen_sensor, variable = "CurrentLevel"}, -- Might be switch like and can have Setter
-	weekly_user_code_intervals = {service = SID.gen_sensor, variable = "CurrentLevel"}, 
-	weight = {service = SID.gen_sensor, variable = "CurrentLevel"}
+	water_valve_short_circuit = {service = SID.gen_sensor, variable = "WaterValveShortCircuit"}, 
+	water_valve_state = {service = SID.gen_sensor, variable = "WaterValveState"}, -- Might be switch like and can have Setter
+	weekly_user_code_intervals = {service = SID.gen_sensor, variable = "WeeklyUserCodeIntervals"}, 
+	weight = {service = SID.gen_sensor, variable = "Weight"}
 }
 
 -- Map a Vera action to the device or item we need to update on the Ezlo Hub.
 -- We map by SID and action
 local VeraActionMapping = {
 	[SID.sec_sensor] = {
-			["SetArmed"] = { fn = function(dev, params) return {i="armed", v=(params.newArmedValue == "1")} end }
+			["SetArmed"] = { fn = function(dev, params) return {{i="armed", m="hub.device.armed.set", p="armed", v=(params.newArmedValue == "1")}} end }
 		},
 	[SID.hvac_uom] = {
 			-- ModeTarget Allowed values:
@@ -1557,49 +1556,6 @@ local VeraActionMapping = {
 		}
 }
 
---- QUEUE STRUCTURE ---
-local Queue = {}
-function Queue.new()
-	return {first = 0, last = -1}
-end
-
-function Queue.push(list, value)
-	local last = list.last + 1
-	list.last = last
-	list[last] = value
-end
-    
-function Queue.pop(list)
-	local first = list.first
-	if first > list.last then return nil end
-	local value = list[first]
-	list[first] = nil -- to allow garbage collection
-	list.first = first + 1
-	return value
-end
-
--- Just get first item of queue, do not remove it.
-function Queue.peak(list)
-	local first = list.first
-	if first > list.last then return nil end
-	local value = list[first]
-	return value
-end
-
-function Queue.len(list)
-	return list.last - list.first + 1
-end
-
-function Queue.drop(list)
-	luup.log("Dropping "..Queue.len(list).." items from queue.")
-	while Queue.len(list) > 0 do
-		Queue.pop(list)
-	end
-	list.first = 0
-	list.last = -1
-end
-
-
 -- API for Ezlo Communications
 local function ezloAPI()
 	local ltn12 	= require("ltn12")
@@ -1635,7 +1591,6 @@ local function ezloAPI()
 	local errorCallbacks = {}
 	local pingCounter = 0
 	local pingCommand = nil	-- Send this data instead of Ping
-	local SendQueue = Queue.new()	-- Queue to hold commands to be handled.
 	
 	-- Calculates SHA1 for a string, returns it encoded as 40 hexadecimal digits.
 	local function sha1(str)
@@ -1825,7 +1780,7 @@ log.Debug("MessageHandler %s, %s",tostring(opcode),tostring(data))
 			local js, msg = json.decode(data)
 			-- Check for error table to be present (cannot test for nil as cjson returns userdata type)
 			if type(js.error) == "table" then
-				log.Debug("MessageHandler, response has error : %d, %s ", (js.error.code or 0), (js.error.message or ""))
+				log.Debug("MessageHandler, response has error : %s, %s ", tostring(js.error.code or 0), (js.error.message or ""))
 				local func = errorCallbacks[js.method] or errorCallbacks["*"]
 				if func then
 					-- Call the registered handler
@@ -2118,7 +2073,7 @@ log.Debug("MessageHandler %s, %s",tostring(opcode),tostring(data))
 			end	
 			-- If more is nil the connection to the Hub is lost. Close and retry.
 			if more == nil then
-				log.Warning("%s. Lost connection to Hub, %s. Try reconnect in %d seconds.", R1NAME, tostring(nb or ""), reconnectRetryInterval)
+				log.Warning("%s. Lost connection to Hub, %s. Try reconnect in %d seconds.", R1NAME, tostring(nb or "reason unknown"), reconnectRetryInterval)
 				Close()
 				luup.call_delay(RCNAME, reconnectRetryInterval, "1")
 			else
@@ -2616,11 +2571,11 @@ local function generic_action (serviceId, name)
 	end
 	local eaction = VeraActionMapping[serviceId]
 	local edevID = EzloData.reverseDeviceMap[devNo].id
-log.Debug("Action for Ezlo device : %s.",(edevID or "not found!"))		
+log.Debug("Action %s:%s for Ezlo device : %s.",serviceId,(name or "no action name"),(edevID or "not found!"))		
 	if eaction then 
 		eaction = eaction[name]
 		if eaction then
-			local methods = eaction.fn(devNo, lul_settings)
+			local methods = eaction.fn(lul_device, lul_settings)
 log.Debug("number of methods to send %d.",(#methods or 0))
 			if methods then
 				for _,v in ipairs(methods) do
@@ -2638,11 +2593,15 @@ log.Debug("Method : %s, name : %s, value : %s", tostring(method), tostring(iname
 						end
 						if item.scale then
 							-- It is a scalar value
-							params.value = {}
-							params.value.value = value
-							params.value.scale = item.scale
-						else
 							params.value = value
+							params.scale = item.scale
+						else
+							if v.p then
+								-- Parameter has other name than value for its value.
+								params[v.p] = value
+							else
+								params.value = value
+							end	
 						end
 log.Debug("Action command "..json.encode({method=method, params=params}))
 						ezlo.Send({method=method, params=params})
@@ -2801,7 +2760,7 @@ local function BroadcastHandler(msg_subclass, result)
 						end
 					else
 						-- item for unknown variable?
-						log.Error("Item %d has unmapped name %s.", result._id, result.name)
+						log.Error("Item %s has unmapped name %s.", result._id, result.name)
 					end
 				else
 					-- item for unknown device?
@@ -2829,7 +2788,7 @@ local function BroadcastHandler(msg_subclass, result)
 					end
 				else
 					-- item for unknown device?
-					log.Error("Device %d is not mapped to Vera device.", result._id)
+					log.Error("Device %s is not mapped to Vera device.", result._id)
 				end	
 			end
 		elseif msg_subclass == "hub.modes.switched" then
@@ -2871,9 +2830,15 @@ end
 local function MethodHandler(method,result)
 	if method == "hub.offline.login.ui" then
 		log.Debug ("logged on to hub locally.")
-		-- Ask for items list for device variables
-		log.Debug("Send get hub info")
-		ezlo.Send({ method = "hub.info.get" })
+		if EzloData.is_ready then
+			-- Reconnect, so skip to rooms.
+			log.Debug("Send list room")
+			ezlo.Send({ method = "hub.room.list" })
+		else
+			-- Ask for hub information at startup
+			log.Debug("Send get hub info")
+			ezlo.Send({ method = "hub.info.get" })
+		end	
 	elseif method == "hub.info.get" then
 		-- Hub info received, start building user_data like structure.
 		EzloData.Vera = {}
