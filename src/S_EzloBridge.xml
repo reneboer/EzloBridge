@@ -29,9 +29,6 @@
 	</serviceStateTable>
 	<actionList>
 		<action>
-			<name>GetRemoteScenes</name>
-		</action>
-		<action>
 			<name>Restart</name>
 			<argumentList>
 				<argument>

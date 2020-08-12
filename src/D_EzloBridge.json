@@ -57,7 +57,7 @@
 					"top": "3",
 					"left": "0",
 					"Display": {
-						"Service": "urn:akbooer-com:serviceId:EzloBridge1",
+						"Service": "urn:rboer-com:serviceId:EzloBridge1",
 						"Variable": "Version",
 						"Top": 100,
 						"Left": 50,
@@ -90,5 +90,5 @@
 	} 
   ],
   "eventList2": [ ],
-  "device_type": "urn:schemas-akbooer-com:device:EzloBridge:1"
+  "device_type": "urn:schemas-rboer-com:device:EzloBridge:1"
 }
