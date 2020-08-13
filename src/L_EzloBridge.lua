@@ -1,6 +1,6 @@
 ABOUT = {
   NAME          = "EzloBridge",
-  VERSION       = "1.03",
+  VERSION       = "1.04",
   DESCRIPTION   = "EzloBridge plugin for openLuup",
   AUTHOR        = "reneboer",
   COPYRIGHT     = "(c) 2013-2020 AKBooer and reneboer",
@@ -51,8 +51,9 @@ also to logically group device numbers for remote machine device clones.
 				Changed items mapping to generic sensor to item name and not all the CurrentLevel.
 				Fix for SetArmed action as Ezlo changed value name.
 				Fix for scalar type variables.
-				Fix for action mapping funcitons.
+				Fix for action mapping functions.
 				Some logging fixes.
+1.04			Fix for device offset.
 
 To do's: 
 	better reconnect handler to deal with expired token (did not have it expire yet to test).
@@ -164,7 +165,7 @@ local function varAPI()
 		local num = tonumber(value,10)
 		if type(num) ~= "number" then
 			luup.log("var.GetNumber: wrong data type ("..type(value)..") for variable "..(name or "unknown").." device "..tostring(device)..", value found "..tostring(num), 2)
-			return -1
+			return false
 		end
 		return num
 	end
@@ -1388,6 +1389,7 @@ local VeraActionMapping = {
 			-- look at fanspeed for low/med/high values
 			["SetMode"] = { fn = function(dev, params)
 									local fs = var.GetNumber("FanSpeedStatus", SID.hvac_fs, dev)
+									if fs == false then fs = 0 end
 									local mode = "auto_low" -- is auto_low
 									if params.NewMode == "Auto" then
 										if fs < 31 then
@@ -2744,8 +2746,8 @@ local function BroadcastHandler(msg_subclass, result)
 						if v.variable == "Tripped" and v.tripvalue then
 							-- Handle sensor tripping
 							if v.value == "1" then
-								local armed = var.GetNumber("Armed", SID.sec_sensor, vdevID)
-								var.SetNumber("ArmedTripped", (armed == 1 and 1 or 0), SID.sec_sensor, vdevID)
+								local armed = var.GetBoolean("Armed", SID.sec_sensor, vdevID)
+								var.SetNumber("ArmedTripped", (armed and 1 or 0), SID.sec_sensor, vdevID)
 								var.SetNumber("LastTrip", os.time(), SID.sec_sensor, vdevID)
 							else
 								var.SetNumber("ArmedTripped", 0, SID.sec_sensor, vdevID)
