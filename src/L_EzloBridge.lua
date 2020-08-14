@@ -1,6 +1,6 @@
 ABOUT = {
   NAME          = "EzloBridge",
-  VERSION       = "1.04",
+  VERSION       = "1.05",
   DESCRIPTION   = "EzloBridge plugin for openLuup",
   AUTHOR        = "reneboer",
   COPYRIGHT     = "(c) 2013-2020 AKBooer and reneboer",
@@ -54,6 +54,7 @@ also to logically group device numbers for remote machine device clones.
 				Fix for action mapping functions.
 				Some logging fixes.
 1.04			Fix for device offset.
+1.05			Better handle null return values from portal for initial logon.
 
 To do's: 
 	better reconnect handler to deal with expired token (did not have it expire yet to test).
@@ -1936,6 +1937,7 @@ log.Debug("MessageHandler %s, %s",tostring(opcode),tostring(data))
 		end
 		-- Get user and token from response.
 		data = response.data
+log.Debug("Sync keys response "..json.encode(data))		
 		local wss_user = ''
 		local wss_token = ''
 		local contr_uuid = ''
@@ -1955,8 +1957,8 @@ log.Debug("MessageHandler %s, %s",tostring(opcode),tostring(data))
 			return false, "Controller serial not found"
 		end
 		for _, key_data in pairs(data.keys) do
-			if key_data.data and wss_user == '' and wss_token == '' then
-				if key_data.data.string then
+			if type(key_data.data) == "table" and wss_user == '' and wss_token == '' then
+				if type(key_data.data.string) == "string" then
 					if key_data.meta.target.uuid == contr_uuid then
 						wss_token = key_data.data.string
 						wss_user = key_data.meta.entity.uuid
