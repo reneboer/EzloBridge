@@ -1,6 +1,6 @@
 ABOUT = {
   NAME          = "EzloBridge",
-  VERSION       = "1.05",
+  VERSION       = "1.06",
   DESCRIPTION   = "EzloBridge plugin for openLuup",
   AUTHOR        = "reneboer",
   COPYRIGHT     = "(c) 2013-2020 AKBooer and reneboer",
@@ -55,6 +55,7 @@ also to logically group device numbers for remote machine device clones.
 				Some logging fixes.
 1.04			Fix for device offset.
 1.05			Better handle null return values from portal for initial logon.
+1.06			Fix for numeric values on Athom
 
 To do's: 
 	better reconnect handler to deal with expired token (did not have it expire yet to test).
@@ -2696,8 +2697,16 @@ local function mapItem(eitem, vdevID)
 	elseif type(eitem.value) == "table" then
 		value = "??table??"
 	else
-		-- As default we take the formatted value
-		value = eitem.valueFormatted or eitem.value or "??" -- Note Athom has no value formatted
+		-- As default we take the formatted value (not there for Athom)
+		if eitem.valueFormatted then
+			value = eitem.valueFormatted
+		elseif type(eitem.value) == "number" then
+			-- For Athom format a number to two digits
+			value = string.format("%.2f" , eitem.value)
+		else
+			-- For other Athom values, try to make it a string.
+			value = tostring(eitem.value or "??")
+		end
 	end
 	v.value = value
 	return v
