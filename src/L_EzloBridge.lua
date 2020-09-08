@@ -1,6 +1,6 @@
 ABOUT = {
   NAME          = "EzloBridge",
-  VERSION       = "1.06",
+  VERSION       = "1.08",
   DESCRIPTION   = "EzloBridge plugin for openLuup",
   AUTHOR        = "reneboer",
   COPYRIGHT     = "(c) 2013-2020 AKBooer and reneboer",
@@ -56,6 +56,8 @@ also to logically group device numbers for remote machine device clones.
 1.04			Fix for device offset.
 1.05			Better handle null return values from portal for initial logon.
 1.06			Fix for numeric values on Athom
+1.07			Fix for reconnect retry
+1.08			Added solar meter week, month, year and life time KWh values for Ezlo-SolarMeter plugin.
 
 To do's: 
 	better reconnect handler to deal with expired token (did not have it expire yet to test).
@@ -1093,6 +1095,10 @@ local EzloItemsMapping = {
 	electric_meter_kvar = {service = SID.energy, variable = "KVAR"},
 	electric_meter_kvarh = {service = SID.energy, variable = "KVARH"},
 	electric_meter_kwh = {service = SID.energy, variable = "KWH"},
+	electric_meter_kwh_week = {service = SID.energy, variable = "WeekKWH"},
+	electric_meter_kwh_month = {service = SID.energy, variable = "MonthKWH"},
+	electric_meter_kwh_year = {service = SID.energy, variable = "YearKWH"},
+	electric_meter_kwh_life = {service = SID.energy, variable = "LifeKWH"},
 	electric_meter_pulse = {service = SID.energy, variable = "Pulse"},
 	electric_meter_volt = {service = SID.energy, variable = "Volts"},
 	electric_meter_watt = {service = SID.energy, variable = "Watts"},
@@ -1737,6 +1743,7 @@ local function ezloAPI()
 	end
 
 	-- Base 64 decoding
+	-- Can be replaced with mine.unb64 
 	local function b64decode(data)
 		if nixio then
 			return nixio.bin.b64decode(data)
@@ -2112,7 +2119,7 @@ log.Debug("Sync keys response "..json.encode(data))
 				log.Debug("Connection reopened, login")
 				StartPoller()
 			else
-				local RCNAME = "Ezlo_Async_WebSocket_Reconnect" -- Is this function
+				local RCNAME = "EzloBridge_Async_WebSocket_Reconnect" -- Is this function
 				log.Debug("Could not reconnect, retrying in %d seconds.", reconnectRetryInterval)
 				luup.call_delay (RCNAME, reconnectRetryInterval, tostring(retry + 1))
 			end
