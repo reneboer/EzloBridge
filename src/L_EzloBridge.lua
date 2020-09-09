@@ -1,6 +1,6 @@
 ABOUT = {
   NAME          = "EzloBridge",
-  VERSION       = "1.08",
+  VERSION       = "1.09",
   DESCRIPTION   = "EzloBridge plugin for openLuup",
   AUTHOR        = "reneboer",
   COPYRIGHT     = "(c) 2013-2020 AKBooer and reneboer",
@@ -58,6 +58,7 @@ also to logically group device numbers for remote machine device clones.
 1.06			Fix for numeric values on Athom
 1.07			Fix for reconnect retry
 1.08			Added solar meter week, month, year and life time KWh values for Ezlo-SolarMeter plugin.
+1.09			kwh_reading_timestamp item.
 
 To do's: 
 	better reconnect handler to deal with expired token (did not have it expire yet to test).
@@ -1121,6 +1122,7 @@ local EzloItemsMapping = {
 	hw_state = {service = SID.gen_sensor, variable = "HwState"},
 	intrusion_alarm = {service = SID.sec_sensor, variable = "Tripped", tripvalue = "intrusion"},
 	keypad_state = {service = SID.door_lock, variable = "Status"},
+	kwh_reading_timestamp = {service = SID.energy, variable = "KWHReading"},
 	light_alarm = {service = SID.sec_sensor, variable = "Tripped"},
 	light_color_transition = {service = SID.gen_sensor, variable = "LightColorTransition"},
 	load_error_state = {service = SID.gen_sensor, variable = "LoadErrorState"},
