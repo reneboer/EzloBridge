@@ -3331,7 +3331,6 @@ function init (lul_device)
 	var.Initialize(SID.gateway, devNo)
 	utils.Initialize()
 	var.Default("LogLevel", 1)
-	lastFullStatusUpdate = 0
 	log.Initialize(ABOUT.NAME, var.GetNumber("LogLevel"),(utils.GetUI() == utils.IsOpenLuup))
 	log.Log("%s device #%s is initializing!", ABOUT.NAME, devNo)
 	var.SetString("Version", ABOUT.VERSION)
@@ -3475,6 +3474,7 @@ function init (lul_device)
 		-- Kick off message scheduler (poll each second for incoming data)
 		res, msg = ezlo.StartPoller()
 		-- Start watch dog that will do a full status pull on scheduled interval.
+		lastFullStatusUpdate = os.time()
 		luup.call_delay("EzloBridge_async_watchdog", CheckAllEveryNth, CheckAllEveryNth)
 		
 		luup.set_failure (0)                        -- all's well with the world
