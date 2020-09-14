@@ -1,6 +1,6 @@
 ABOUT = {
   NAME          = "EzloBridge",
-  VERSION       = "1.09",
+  VERSION       = "1.10",
   DESCRIPTION   = "EzloBridge plugin for openLuup",
   AUTHOR        = "reneboer",
   COPYRIGHT     = "(c) 2013-2020 AKBooer and reneboer",
@@ -59,6 +59,7 @@ also to logically group device numbers for remote machine device clones.
 1.07			Fix for reconnect retry
 1.08			Added solar meter week, month, year and life time KWh values for Ezlo-SolarMeter plugin.
 1.09			kwh_reading_timestamp item.
+1.10			Fix for fresh install lastFullStatusUpdate not initialized.
 
 To do's: 
 	better reconnect handler to deal with expired token (did not have it expire yet to test).
@@ -3330,6 +3331,7 @@ function init (lul_device)
 	var.Initialize(SID.gateway, devNo)
 	utils.Initialize()
 	var.Default("LogLevel", 1)
+	lastFullStatusUpdate = 0
 	log.Initialize(ABOUT.NAME, var.GetNumber("LogLevel"),(utils.GetUI() == utils.IsOpenLuup))
 	log.Log("%s device #%s is initializing!", ABOUT.NAME, devNo)
 	var.SetString("Version", ABOUT.VERSION)
