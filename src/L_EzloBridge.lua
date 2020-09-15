@@ -1,6 +1,6 @@
 ABOUT = {
   NAME          = "EzloBridge",
-  VERSION       = "1.10",
+  VERSION       = "1.11",
   DESCRIPTION   = "EzloBridge plugin for openLuup",
   AUTHOR        = "reneboer",
   COPYRIGHT     = "(c) 2013-2020 AKBooer and reneboer",
@@ -60,6 +60,7 @@ also to logically group device numbers for remote machine device clones.
 1.08			Added solar meter week, month, year and life time KWh values for Ezlo-SolarMeter plugin.
 1.09			kwh_reading_timestamp item.
 1.10			Fix for fresh install lastFullStatusUpdate not initialized.
+1.11			Fix for motion sensor.
 
 To do's: 
 	better reconnect handler to deal with expired token (did not have it expire yet to test).
@@ -1140,7 +1141,7 @@ local EzloItemsMapping = {
 	methane_density = {service = SID.gen_sensor, variable = "MethaneDensity"},
 	moisture = {service = SID.gen_sensor, variable = "Moisture"},
 	moisture_alarm = {service = SID.sec_sensor, variable = "Tripped", tripvalue = "moisture_detected"},
-	motion = {service = SID.gen_sensor, variable = "Motion"},
+	motion = {service = SID.sec_sensor, variable = "Tripped"},
 	motion_status = {service = SID.gen_sensor, variable = "MotionStatus"},
 	muscle_mass = {service = SID.gen_sensor, variable = "MuscleMass"},
 	outside_temperature = {service = SID.temp_sensor, variable = "CurrentTemperature"},
@@ -2680,7 +2681,7 @@ local function mapItem(eitem, vdevID)
 		-- Handle sensor tripping
 		value = (eitem.value == v.tripvalue and "1" or "0")
 	elseif eitem.valueType == "bool" then
-		value = eitem.value and "1" or "0"
+		value = (eitem.value and "1" or "0")
 	elseif eitem.valueType == "rgb" then
 		--[[ convert to Vera rgb value
 			To-do; other values than just RGB.
