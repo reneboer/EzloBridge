@@ -1,6 +1,6 @@
 ABOUT = {
   NAME          = "EzloBridge",
-  VERSION       = "1.11",
+  VERSION       = "1.13",
   DESCRIPTION   = "EzloBridge plugin for openLuup",
   AUTHOR        = "reneboer",
   COPYRIGHT     = "(c) 2013-2020 AKBooer and reneboer",
@@ -61,6 +61,8 @@ also to logically group device numbers for remote machine device clones.
 1.09			kwh_reading_timestamp item.
 1.10			Fix for fresh install lastFullStatusUpdate not initialized.
 1.11			Fix for motion sensor.
+1.12			Avoid non-fatal scrash on unknown device.
+1.13			Fix for Light sensor.
 
 To do's: 
 	better reconnect handler to deal with expired token (did not have it expire yet to test).
@@ -1130,7 +1132,7 @@ local EzloItemsMapping = {
 	load_error_state = {service = SID.gen_sensor, variable = "LoadErrorState"},
 	lock_operation = {service = SID.door_lock, variable = "Status"}, -- needs details
 	loudness = {service = SID.gen_sensor, variable = "Loudness"},
-	lux = {service = SID.light_sensor, variable = "Lux"},
+	lux = {service = SID.light_sensor, variable = "CurrentLevel"},
 	maintenance_state = {service = SID.gen_sensor, variable = "MaintenanceState"},
 	master_code = {service = SID.gen_sensor, variable = "MasterCode"},
 	master_code_state = {service = SID.gen_sensor, variable = "MasterCodeState"},
@@ -2586,9 +2588,10 @@ local function generic_action (serviceId, name)
 		return 3,0
 	end
 	local eaction = VeraActionMapping[serviceId]
-	local edevID = EzloData.reverseDeviceMap[devNo].id
-log.Debug("Action %s:%s for Ezlo device : %s.",serviceId,(name or "no action name"),(edevID or "not found!"))		
-	if eaction then 
+	local edev = EzloData.reverseDeviceMap[devNo]
+--	local edevID = EzloData.reverseDeviceMap[devNo].id
+log.Debug("Action %s:%s for Ezlo device : %s.",serviceId,(name or "no action name"),(edev and edev.id or "not found!"))		
+	if eaction and edev then 
 		eaction = eaction[name]
 		if eaction then
 			local methods = eaction.fn(lul_device, lul_settings)
@@ -2605,7 +2608,7 @@ log.Debug("Method : %s, name : %s, value : %s", tostring(method), tostring(iname
 							-- Get the Id of the item of the device
 							params._id = EzloData.reverseDeviceMap[devNo].items[iname]
 						else
-							params._id = edevID
+							params._id = edev.id
 						end
 						if item.scale then
 							-- It is a scalar value
