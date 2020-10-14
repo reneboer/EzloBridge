@@ -1,6 +1,6 @@
 ABOUT = {
   NAME          = "EzloBridge",
-  VERSION       = "1.13",
+  VERSION       = "1.14",
   DESCRIPTION   = "EzloBridge plugin for openLuup",
   AUTHOR        = "reneboer",
   COPYRIGHT     = "(c) 2013-2020 AKBooer and reneboer",
@@ -63,6 +63,7 @@ also to logically group device numbers for remote machine device clones.
 1.11			Fix for motion sensor.
 1.12			Avoid non-fatal scrash on unknown device.
 1.13			Fix for Light sensor.
+1.14			Fix for dimmer status.
 
 To do's: 
 	better reconnect handler to deal with expired token (did not have it expire yet to test).
@@ -1082,8 +1083,8 @@ local EzloItemsMapping = {
 	daily_user_code_intervals = {}, -- ??
 	dew_point = {service = SID.gen_sensor, variable = "DewPoint"},
 	digital_input_state = {}, -- ??
---	dimmer = {service = SID.dimming, variable = "LoadLevelStatus"},
-	dimmer = {service = SID.dimming, variable = "LoadLevelTarget"},
+	dimmer = {service = SID.dimming, variable = "LoadLevelStatus"},
+--	dimmer = {service = SID.dimming, variable = "LoadLevelTarget"},
 	dimmer_down = {}, -- int (action)
 	dimmer_stop = {}, -- int (action)
 	dimmer_up = {}, -- int (action)
@@ -3310,7 +3311,7 @@ local function CreateDeviceVariables()
 															-- ...takes precedence over the first two.
 	var.Default ("AutoStartOnChange", 0)-- if set to 1 then adding or removing a device from teh hub will trigger a luup reload.
 	var.Default ("RemotePort", 17000)
-	var.Default ("CheckAllEveryNth", 600)-- periodic request for ALL variables to check status
+	var.Default ("CheckAllEveryNth", 3600)-- periodic request for ALL variables to check status
 	var.Default ("HouseModeMirror", 0)
     var.Default ("UserID", "")			-- UserID to logon to portal for this Ezlo
     var.Default ("Password", "")		-- Password
