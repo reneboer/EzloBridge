@@ -1,6 +1,6 @@
 ABOUT = {
   NAME          = "EzloBridge",
-  VERSION       = "1.14",
+  VERSION       = "1.15",
   DESCRIPTION   = "EzloBridge plugin for openLuup",
   AUTHOR        = "reneboer",
   COPYRIGHT     = "(c) 2013-2020 AKBooer and reneboer",
@@ -64,6 +64,8 @@ also to logically group device numbers for remote machine device clones.
 1.12			Avoid non-fatal scrash on unknown device.
 1.13			Fix for Light sensor.
 1.14			Fix for dimmer status.
+1.15			Setting both Status and Target for switch, dimmer & thermostat setpoint updates.
+				Fixed SID for HVAC_OperatingState1
 
 To do's: 
 	better reconnect handler to deal with expired token (did not have it expire yet to test).
@@ -111,7 +113,7 @@ local SID = {
 	temp_setph		= "urn:upnp-org:serviceId:TemperatureSetpoint1_Heat",
 	hvac_fom		= "urn:upnp-org:serviceId:HVAC_FanOperatingMode1",
 	hvac_uom		= "urn:upnp-org:serviceId:HVAC_UserOperatingMode1",
-	hvac_os			= "urn:upnp-org:serviceId:HVAC_OperatingState1",
+	hvac_os			= "urn:micasaverde-com:serviceId:HVAC_OperatingState1",
 	hvac_fs			= "urn:upnp-org:serviceId:FanSpeed1",
 	window_cov		= "urn:upnp-org:serviceId:WindowCovering1",
 	energy			= "urn:micasaverde-com:serviceId:EnergyMetering1",
@@ -1083,7 +1085,7 @@ local EzloItemsMapping = {
 	daily_user_code_intervals = {}, -- ??
 	dew_point = {service = SID.gen_sensor, variable = "DewPoint"},
 	digital_input_state = {}, -- ??
-	dimmer = {service = SID.dimming, variable = "LoadLevelStatus"},
+	dimmer = {service = SID.dimming, variable = { "LoadLevelStatus","LoadLevelTarget"}},
 --	dimmer = {service = SID.dimming, variable = "LoadLevelTarget"},
 	dimmer_down = {}, -- int (action)
 	dimmer_stop = {}, -- int (action)
@@ -1126,7 +1128,7 @@ local EzloItemsMapping = {
 	humidity = {service = SID.hum_sensor, variable = "Humidity"},
 	hw_state = {service = SID.gen_sensor, variable = "HwState"},
 	intrusion_alarm = {service = SID.sec_sensor, variable = "Tripped", tripvalue = "intrusion"},
-	keypad_state = {service = SID.door_lock, variable = "Status"},
+	keypad_state = {service = SID.door_lock, variable = { "Status", "Target" }},
 	kwh_reading_timestamp = {service = SID.energy, variable = "KWHReading"},
 	light_alarm = {service = SID.sec_sensor, variable = "Tripped"},
 	light_color_transition = {service = SID.gen_sensor, variable = "LightColorTransition"},
@@ -1193,7 +1195,7 @@ local EzloItemsMapping = {
 	sound_volume = {service = SID.gen_sensor, variable = "SoundVolume"}, 
 	sounding_mode = {service = SID.sec_sensor, variable = "Tripped", tripvalue = "audible"}, 
 	sw_state = {service = SID.gen_sensor, variable = "SwState"}, 
-	switch = {service = SID.switch_power, variable = "Status"}, 
+	switch = {service = SID.switch_power, variable = { "Status", "Target" }}, 
 	tampering_cover_alarm = {service = SID.sec_sensor, variable = "TamperAlarm", convert=function(value) return value == "no_tampering_cover" and 1 or 0 end}, 
 	tampering_impact_alarm = {service = SID.sec_sensor, variable = "TamperImpactAlarm", convert=function(value) return value == "impact_detected" and 1 or 0 end}, 
 	tampering_invalid_code_alarm = {service = SID.sec_sensor, variable = "TamperCodeAlarm", convert=function(value) return value == "invalid_code" and 1 or 0 end}, 
@@ -1234,7 +1236,7 @@ local EzloItemsMapping = {
 				return "On" -- Not fully functional. Would need to look at FanSpeedStatus as well
 			end	
 		end},
-	thermostat_mode = {service = SID.hvac_uom, variable = "ModeStatus", convert=function(value, devID)
+	thermostat_mode = {service = SID.hvac_uom, variable = { "ModeStatus", "ModeTarget" }, convert=function(value, devID)
 			-- Ezlo thermostat_mode Enums (get/set): 
 			--	"off", "heat", "cool", "aux", "resume", "fan_only", "furnace", "dry_air", "moist_air", "auto_change_over", 
 			--	"energy_saving_heat", "energy_saving_cool", "away", "reserved", "full_power"
@@ -2767,8 +2769,16 @@ local function BroadcastHandler(msg_subclass, result)
 --log.Debug("Existing device %s mapping to %d.", (result.deviceId or "??"), vdevID)
 					local v = mapItem(result, vdevID)
 					if v.variable then
---log.Debug("Updating variable %s, value %s.", (v.variable or "??"), (v.value or ""))					
-						luup.variable_set (v.service, v.variable, v.value or "", vdevID)
+						if type(v.variable) == "table" then
+							-- We have mutliple variables (with same SID) to update
+							for _, vn in pairs(v.variable) do
+log.Debug("Updating variable %s, value %s.", (vn or "??"), (v.value or ""))				
+								luup.variable_set (v.service, vn, v.value or "", vdevID)
+							end
+						else
+log.Debug("Updating variable %s, value %s.", (v.variable or "??"), (v.value or ""))					
+							luup.variable_set (v.service, v.variable, v.value or "", vdevID)
+						end
 						if v.variable == "Tripped" and v.tripvalue then
 							-- Handle sensor tripping
 							if v.value == "1" then
@@ -3162,16 +3172,30 @@ local function MethodHandler(method,result)
 							if vstate then
 								if vstate.service then
 									-- Only add if there is a service.
-									state.id = #device.states + 1
 									state.service = vstate.service
-									state.variable = vstate.variable
 									state.value = vstate.value
-									if EzloData.is_ready then
-										-- Refresh values
-										var.SetString(state.variable, state.value, state.service, vdevID + OFFSET)
+									if type(vstate.variable) == "table" then
+										-- We have multiple variables for the item
+										for _, vn in pairs(vstate.variable) do
+											state.id = #device.states + 1
+											state.variable = vn
+											if EzloData.is_ready then
+												-- Refresh values
+												var.SetString(state.variable, state.value, state.service, vdevID + OFFSET)
+											else
+												table.insert(device.states, state)
+											end	
+										end
 									else
-										table.insert(device.states, state)
-									end	
+										state.id = #device.states + 1
+										state.variable = vstate.variable
+										if EzloData.is_ready then
+											-- Refresh values
+											var.SetString(state.variable, state.value, state.service, vdevID + OFFSET)
+										else
+											table.insert(device.states, state)
+										end	
+									end
 									if vstate.variable == "Tripped" and vstate.tripvalue then
 										-- Handle sensor tripped item. Add the ArmedTripped and LastTrip states
 										local at = "0"
