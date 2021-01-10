@@ -430,7 +430,7 @@ local function wshandlefragment( fin, op, data, wsconn )
 			return
 		elseif (wsconn.msg or "") == "" then
 			-- Control frame or FIN on first packet, handle immediately, no copy/buffering
---			D("wshandlefragment() fast dispatch %1 byte message for op %2", #data, op)
+			--D("wshandlefragment() fast dispatch %1 byte message for op %2", #data, op)
 			return pcall( wsconn.msghandler, wsconn, op, data,
 				unpack(wsconn.options.handler_args or {}) )
 		end
@@ -445,7 +445,7 @@ local function wshandlefragment( fin, op, data, wsconn )
 			D("wshandlefragment() buffer overflow, have %1, incoming %2, max %3; message truncated.", #wsconn.msg, #data, wsconn.options.max_payload_size)
 		end
 		if maxn > 0 then wsconn.msg = wsconn.msg .. data:sub(1, maxn) end
---		D("wshandlefragment() dispatch %2 byte message for op %1", wsconn.msgop, #wsconn.msg)
+		--D("wshandlefragment() dispatch %2 byte message for op %1", wsconn.msgop, #wsconn.msg)
 		wsconn.lastMessage = timenow()
 		pcall( wsconn.msghandler, wsconn, wsconn.msgop, wsconn.msg,
 			unpack(wsconn.options.handler_args or {}) )
@@ -454,11 +454,11 @@ local function wshandlefragment( fin, op, data, wsconn )
 		-- No FIN
 		if (wsconn.msg or "") == "" then
 			-- First fragment, also save op (first determines for all)
-			-- D("wshandlefragment() no fin, first fragment")
+			--D("wshandlefragment() no fin, first fragment")
 			wsconn.msgop = op
 			wsconn.msg = data
 		else
-			-- D("wshandlefragment() no fin, additional fragment")
+			--D("wshandlefragment() no fin, additional fragment")
 			-- RFC6455 requires op on continuations to be 0.
 			if op ~= 0 then 
 				return pcall( wsconn.msghandler, wsconn, false,	"ws continuation error", unpack(wsconn.options.handler_args or {}) ) 
@@ -581,7 +581,7 @@ end
 -- Receiver task. Use non-blocking read. Returns nil,err on error, otherwise true/false is the
 -- receiver believes there may immediately be more data to process.
 local function wsreceive( wsconn )
---	D("wsreceive(%1)", wsconn)
+	--D("wsreceive(%1)", wsconn)
 	if not wsconn.connected then return end
 	wsconn.socket:settimeout( 0, "b" )
 	wsconn.socket:settimeout( 0, "r" )

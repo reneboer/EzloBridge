@@ -1,6 +1,6 @@
 ABOUT = {
   NAME          = "EzloBridge",
-  VERSION       = "1.03",
+  VERSION       = "2.0",
   DESCRIPTION   = "EzloBridge plugin for openLuup",
   AUTHOR        = "reneboer",
   COPYRIGHT     = "(c) 2013-2020 AKBooer and reneboer",
@@ -51,18 +51,36 @@ also to logically group device numbers for remote machine device clones.
 				Changed items mapping to generic sensor to item name and not all the CurrentLevel.
 				Fix for SetArmed action as Ezlo changed value name.
 				Fix for scalar type variables.
-				Fix for action mapping funcitons.
+				Fix for action mapping functions.
 				Some logging fixes.
+1.04			Fix for device offset.
+1.05			Better handle null return values from portal for initial logon.
+1.06			Fix for numeric values on Athom
+1.07			Fix for reconnect retry
+1.08			Added solar meter week, month, year and life time KWh values for Ezlo-SolarMeter plugin.
+1.09			kwh_reading_timestamp item.
+1.10			Fix for fresh install lastFullStatusUpdate not initialized.
+1.11			Fix for motion sensor.
+1.12			Avoid non-fatal scrash on unknown device.
+1.13			Fix for Light sensor.
+1.14			Fix for dimmer status.
+1.15			Setting both Status and Target for switch, dimmer & thermostat setpoint updates.
+				Fixed SID for HVAC_OperatingState1
+2.0				Changed Ezlo device, Items and Scenes retrieval to hub.data.list  with optimized filter
+				Added unauthenticated access option 
+				Existing devices are no longer recreated at start up. Thanks akbooer.
 
 To do's: 
 	better reconnect handler to deal with expired token (did not have it expire yet to test).
 	command queue during lost connection. (is this needed?)
 	better support of locks
 	Make it work on Vera
+	(Added mDNS query to get hub serial and type before connecting.)
 
 Messages when hub is starting. Normally at restart the WS connections is lost and a reconnect is triggered.
 {"id":"ui_broadcast","msg_subclass":"hub.gateway.updated","result":{"_id":"5ec3e5a4124c4114fb88839f","status":"starting"}}
 {"id":"ui_broadcast","msg_subclass":"hub.gateway.updated","result":{"_id":"5ec3e5a4124c4114fb88839f","status":"ready"}}
+
 
 ]]
 
@@ -82,6 +100,7 @@ local BuildVersion			-- ...of remote machine
 local PK_AccessPoint		-- ... ditto
 local LoadTime				-- ... ditto
 local EzloHubUserID			-- User ID used to logon to Ezlo Hub
+local EzloHubSerial			-- Serial of Ezlo Hub
 local RemotePort			-- port to access remote machine 
 							-- "/port_3480" for newer Veras, ":3480" for older ones, and openLuup
 							-- 17000 for Ezlo WebSocket
@@ -100,7 +119,7 @@ local SID = {
 	temp_setph		= "urn:upnp-org:serviceId:TemperatureSetpoint1_Heat",
 	hvac_fom		= "urn:upnp-org:serviceId:HVAC_FanOperatingMode1",
 	hvac_uom		= "urn:upnp-org:serviceId:HVAC_UserOperatingMode1",
-	hvac_os			= "urn:upnp-org:serviceId:HVAC_OperatingState1",
+	hvac_os			= "urn:micasaverde-com:serviceId:HVAC_OperatingState1",
 	hvac_fs			= "urn:upnp-org:serviceId:FanSpeed1",
 	window_cov		= "urn:upnp-org:serviceId:WindowCovering1",
 	energy			= "urn:micasaverde-com:serviceId:EnergyMetering1",
@@ -118,7 +137,7 @@ local SID = {
 
 local HouseModeMirror   -- flag with one of the following options
 local HouseModeTime = 0 -- last time we checked
-local VeraScenes, VeraRoom
+--local VeraScenes, VeraRoom
 local BridgeScenes, CloneRooms, ZWaveOnly, Included, Excluded
 local EzloHubUserID
 
@@ -164,7 +183,7 @@ local function varAPI()
 		local num = tonumber(value,10)
 		if type(num) ~= "number" then
 			luup.log("var.GetNumber: wrong data type ("..type(value)..") for variable "..(name or "unknown").." device "..tostring(device)..", value found "..tostring(num), 2)
-			return -1
+			return false
 		end
 		return num
 	end
@@ -709,7 +728,6 @@ local is_cj, is_dk
 end
 
 
-
 --[[ Map Ezlo known device type, category and subcategory to a Vera device type
  First looked in plugins\zwave\scripts\helpers\device_info_detection\device_class_based and icon_based
 
@@ -1072,8 +1090,8 @@ local EzloItemsMapping = {
 	daily_user_code_intervals = {}, -- ??
 	dew_point = {service = SID.gen_sensor, variable = "DewPoint"},
 	digital_input_state = {}, -- ??
---	dimmer = {service = SID.dimming, variable = "LoadLevelStatus"},
-	dimmer = {service = SID.dimming, variable = "LoadLevelTarget"},
+	dimmer = {service = SID.dimming, variable = { "LoadLevelStatus","LoadLevelTarget"}},
+--	dimmer = {service = SID.dimming, variable = "LoadLevelTarget"},
 	dimmer_down = {}, -- int (action)
 	dimmer_stop = {}, -- int (action)
 	dimmer_up = {}, -- int (action)
@@ -1090,6 +1108,10 @@ local EzloItemsMapping = {
 	electric_meter_kvar = {service = SID.energy, variable = "KVAR"},
 	electric_meter_kvarh = {service = SID.energy, variable = "KVARH"},
 	electric_meter_kwh = {service = SID.energy, variable = "KWH"},
+	electric_meter_kwh_week = {service = SID.energy, variable = "WeekKWH"},
+	electric_meter_kwh_month = {service = SID.energy, variable = "MonthKWH"},
+	electric_meter_kwh_year = {service = SID.energy, variable = "YearKWH"},
+	electric_meter_kwh_life = {service = SID.energy, variable = "LifeKWH"},
 	electric_meter_pulse = {service = SID.energy, variable = "Pulse"},
 	electric_meter_volt = {service = SID.energy, variable = "Volts"},
 	electric_meter_watt = {service = SID.energy, variable = "Watts"},
@@ -1111,13 +1133,14 @@ local EzloItemsMapping = {
 	humidity = {service = SID.hum_sensor, variable = "Humidity"},
 	hw_state = {service = SID.gen_sensor, variable = "HwState"},
 	intrusion_alarm = {service = SID.sec_sensor, variable = "Tripped", tripvalue = "intrusion"},
-	keypad_state = {service = SID.door_lock, variable = "Status"},
+	keypad_state = {service = SID.door_lock, variable = { "Status", "Target" }},
+	kwh_reading_timestamp = {service = SID.energy, variable = "KWHReading"},
 	light_alarm = {service = SID.sec_sensor, variable = "Tripped"},
 	light_color_transition = {service = SID.gen_sensor, variable = "LightColorTransition"},
 	load_error_state = {service = SID.gen_sensor, variable = "LoadErrorState"},
 	lock_operation = {service = SID.door_lock, variable = "Status"}, -- needs details
 	loudness = {service = SID.gen_sensor, variable = "Loudness"},
-	lux = {service = SID.light_sensor, variable = "Lux"},
+	lux = {service = SID.light_sensor, variable = "CurrentLevel"},
 	maintenance_state = {service = SID.gen_sensor, variable = "MaintenanceState"},
 	master_code = {service = SID.gen_sensor, variable = "MasterCode"},
 	master_code_state = {service = SID.gen_sensor, variable = "MasterCodeState"},
@@ -1128,7 +1151,7 @@ local EzloItemsMapping = {
 	methane_density = {service = SID.gen_sensor, variable = "MethaneDensity"},
 	moisture = {service = SID.gen_sensor, variable = "Moisture"},
 	moisture_alarm = {service = SID.sec_sensor, variable = "Tripped", tripvalue = "moisture_detected"},
-	motion = {service = SID.gen_sensor, variable = "Motion"},
+	motion = {service = SID.sec_sensor, variable = "Tripped"},
 	motion_status = {service = SID.gen_sensor, variable = "MotionStatus"},
 	muscle_mass = {service = SID.gen_sensor, variable = "MuscleMass"},
 	outside_temperature = {service = SID.temp_sensor, variable = "CurrentTemperature"},
@@ -1177,7 +1200,7 @@ local EzloItemsMapping = {
 	sound_volume = {service = SID.gen_sensor, variable = "SoundVolume"}, 
 	sounding_mode = {service = SID.sec_sensor, variable = "Tripped", tripvalue = "audible"}, 
 	sw_state = {service = SID.gen_sensor, variable = "SwState"}, 
-	switch = {service = SID.switch_power, variable = "Status"}, 
+	switch = {service = SID.switch_power, variable = { "Status", "Target" }}, 
 	tampering_cover_alarm = {service = SID.sec_sensor, variable = "TamperAlarm", convert=function(value) return value == "no_tampering_cover" and 1 or 0 end}, 
 	tampering_impact_alarm = {service = SID.sec_sensor, variable = "TamperImpactAlarm", convert=function(value) return value == "impact_detected" and 1 or 0 end}, 
 	tampering_invalid_code_alarm = {service = SID.sec_sensor, variable = "TamperCodeAlarm", convert=function(value) return value == "invalid_code" and 1 or 0 end}, 
@@ -1218,7 +1241,7 @@ local EzloItemsMapping = {
 				return "On" -- Not fully functional. Would need to look at FanSpeedStatus as well
 			end	
 		end},
-	thermostat_mode = {service = SID.hvac_uom, variable = "ModeStatus", convert=function(value, devID)
+	thermostat_mode = {service = SID.hvac_uom, variable = { "ModeStatus", "ModeTarget" }, convert=function(value, devID)
 			-- Ezlo thermostat_mode Enums (get/set): 
 			--	"off", "heat", "cool", "aux", "resume", "fan_only", "furnace", "dry_air", "moist_air", "auto_change_over", 
 			--	"energy_saving_heat", "energy_saving_cool", "away", "reserved", "full_power"
@@ -1388,6 +1411,7 @@ local VeraActionMapping = {
 			-- look at fanspeed for low/med/high values
 			["SetMode"] = { fn = function(dev, params)
 									local fs = var.GetNumber("FanSpeedStatus", SID.hvac_fs, dev)
+									if fs == false then fs = 0 end
 									local mode = "auto_low" -- is auto_low
 									if params.NewMode == "Auto" then
 										if fs < 31 then
@@ -1561,6 +1585,7 @@ local function ezloAPI()
 	local ltn12 	= require("ltn12")
 	local https     = require("ssl.https")
 	local bit 		= require("bit")
+	local mime 		= require("mime")
 	local nixio = nil
 	if pcall(require, "nixio") then
 		-- On Vera, use nixio crypto and b64decode module
@@ -1573,7 +1598,9 @@ local function ezloAPI()
 	local reconnectRetryInterval = 30
 	local wssToken = nil
 	local wssUser = nil
+	local authenticate = false
 	local STAT = {
+		UNSUPPORTED_HUB_TYPE = -5,
 		CONNECT_FAILED = -4,
 		BAD_PASSWORD = -3,
 		TOKEN_EXPIRED = -2,
@@ -1733,8 +1760,10 @@ local function ezloAPI()
 	end
 
 	-- Base 64 decoding
+	-- replaced with mime.unb64 
+--[[
 	local function b64decode(data)
-		if nixio then
+	if nixio then
 			return nixio.bin.b64decode(data)
 		else
 			local b='ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/'
@@ -1752,6 +1781,7 @@ local function ezloAPI()
 				end))
 		end
 	end
+]]
 	
 	-- Generate a semi random message ID value
 	local function generateID(prefix)
@@ -1763,6 +1793,34 @@ local function ezloAPI()
 			return string.format('%x', v)
 		end)
 	end	
+	
+	-- Check hub type using mDNS query
+	-- If not found, assume athom and user must specify serial.
+	-- To do or to drop?.
+--[[	
+	local function CheckHubType(ip)
+		local mdns = msnd_api()
+		local res, msg = mdns.query(ip,'_ezlo._tcp.local',2)
+		if res then
+			local hub = res[1]
+			local htyp = nil
+			if hub.name then
+				if string.left(hub.name, 20) == "eZLO 32.1 controller" then
+				elseif false then
+				end
+			else
+				connectionsStatus =STAT.UNSUPPORTED_HUB_TYPE
+				return nil, "No name in mDNS response from hub"
+			end
+			-- If there is a port, over write it.
+			if hub.port then ezloPort = tostring(hub.port) end
+		else
+			connectionsStatus =STAT.UNSUPPORTED_HUB_TYPE
+			return nil, "No mDNS response from hub"
+		end
+	end
+]]
+
 	-- Close connection to Hub
 	local function Close()
 		luaws.wsclose(wsconn)
@@ -1833,7 +1891,7 @@ log.Debug("MessageHandler %s, %s",tostring(opcode),tostring(data))
 			log.Debug("MessageHandler, received ping.")
 		elseif opcode == 0x0a then
 			-- Received pong (should not be possible)
-			log.Debug("MessageHandler, received pong.")
+			log.Debug("MessageHandler, received pong?")
 		elseif opcode == 0x08 then
 			-- Close by peer
 			log.Debug("MessageHandler, Connection is closed by Hub.")
@@ -1902,7 +1960,9 @@ log.Debug("MessageHandler %s, %s",tostring(opcode),tostring(data))
 		local MMSAuth = response.Identity
 		local MMSAuthSig = response.IdentitySignature
 		-- Identity has base64 encoded account details.
-		local js_Ident = json.decode(b64decode(MMSAuth))
+		local Ident, _ = mime.unb64(MMSAuth)
+--		local js_Ident = json.decode(b64decode(MMSAuth))
+		local js_Ident = json.decode(Ident)
 		token_expires = js_Ident.Expires -- Need to logon again when token has expired.
 		request_headers["MMSAuth"] = MMSAuth
 		request_headers["MMSAuthSig"] = MMSAuthSig
@@ -1934,6 +1994,7 @@ log.Debug("MessageHandler %s, %s",tostring(opcode),tostring(data))
 		end
 		-- Get user and token from response.
 		data = response.data
+log.Debug("Sync keys response "..json.encode(data))		
 		local wss_user = ''
 		local wss_token = ''
 		local contr_uuid = ''
@@ -1953,8 +2014,8 @@ log.Debug("MessageHandler %s, %s",tostring(opcode),tostring(data))
 			return false, "Controller serial not found"
 		end
 		for _, key_data in pairs(data.keys) do
-			if key_data.data and wss_user == '' and wss_token == '' then
-				if key_data.data.string then
+			if type(key_data.data) == "table" and wss_user == '' and wss_token == '' then
+				if type(key_data.data.string) == "string" then
 					if key_data.meta.target.uuid == contr_uuid then
 						wss_token = key_data.data.string
 						wss_user = key_data.meta.entity.uuid
@@ -1982,13 +2043,33 @@ log.Debug("MessageHandler %s, %s",tostring(opcode),tostring(data))
 		return luaws.wssend(wsconn, 0x01, cmd:format(data.method, id, params))
 	end
 
-	-- Non-blocking Read from Hub. Responses will be handled by MessageHandler
+	-- Blocking Read from Hub. Responses will be handled by MessageHandler
 	local function Receive()
 		if connectionsStatus ~= STAT.CONNECTING and connectionsStatus ~= STAT.CONNECTED then
 			log.Debug("No connection when trying to call Receive()")
 			return false, "No connection"
 		end
-		return luaws.wsreceive(wsconn)
+		local timeout = 30
+		local res, more, nb
+		more = true
+		while more and timeout > 0 do
+			luup.sleep(500)
+			timeout = timeout - 0.5
+			res, more, nb = pcall(luaws.wsreceive, wsconn)
+log.Debug("main timeout %d res %s, more %s, nb %s", timeout, tostring(res), tostring(more), tostring(nb))			
+			-- Get data, if more is true, immediately read next chunk.
+			while res and more do
+				log.Debug("Receive, More chunks to receive")
+				res, more, nb = pcall(luaws.wsreceive, wsconn)
+log.Debug("more res %s, more %s, nb %s", tostring(res), tostring(more), tostring(nb))			
+			end
+			if not res then
+				log.Error("Receive. Error receiving data from Hub, %s", tostring(more or ""))
+				return false, "Error receiving data from Hub"
+			end
+		end	
+		return true
+--		return luaws.wsreceive(wsconn, true)
 	end
 
 	-- Send ping to Hub.
@@ -1997,18 +2078,35 @@ log.Debug("MessageHandler %s, %s",tostring(opcode),tostring(data))
 	end
 
 	-- open web socket connection
-	local function Connect(controller_ip, wss_token, wss_user)
+	local function Connect(controller_ip, auth, wss_token, wss_user)
+		authenticate = auth or false
 		wsconn, msg = luaws.wsopen('wss://' .. controller_ip .. ':' .. ezloPort, MessageHandler)
 		if wsconn == false then
 			log.Debug("Could not open WebSocket. %s", tostring(msg or ""))
 			return false, "Could not open WebSocket. " .. tostring(msg or "")
-		end	
-		connectionsStatus = STAT.CONNECTING
+		end
 		hubIp = controller_ip
-		wssToken = wss_token
-		wssUser = wss_user
-		-- Send local login command
-		return Send({method="hub.offline.login.ui", params = {user = wss_user, token = wss_token}})
+		if authenticate then
+			connectionsStatus = STAT.CONNECTING
+			wssToken = wss_token
+			wssUser = wss_user
+		else
+			connectionsStatus = STAT.CONNECTED
+		end
+		-- Call plugin connected handler.
+		local func = methodCallbacks["plugin.connected"] or methodCallbacks["*"]
+		if func then
+			-- Call the registered handler
+			local stat, msg = pcall (func, "plugin.connected", {authenticate = authenticate, user = wss_user, token = wss_token})
+			if not stat then 
+				log.Debug("Error in method callback for method %s, %s", tostring("plugin.connected" or ""), (msg or ""))
+			end
+			return stat, msg
+		else
+			-- No call back
+			log.Debug("No method callback for method %s", tostring(js.msg_subclass or ""))
+			return false, "Cannot start plugin."
+		end	
 	end	
 
 	local function SetTokensFromStore(token, uuid, expires)
@@ -2101,13 +2199,13 @@ log.Debug("MessageHandler %s, %s",tostring(opcode),tostring(data))
 		local retry = tonumber(retry) or 1
 		log.Debug("Try to Reconnect, attempt %d.", retry)
 		if retry < maxReconnectRetries then
-			local res, msg = Connect(hubIp, wssToken, wssUser)
+			local res, msg = Connect(hubIp, authenticate, wssToken, wssUser)
 			if res then
 				-- Connected again, resume polling.
-				log.Debug("Connection reopened, login")
+				log.Debug("Connection reopened")
 				StartPoller()
 			else
-				local RCNAME = "Ezlo_Async_WebSocket_Reconnect" -- Is this function
+				local RCNAME = "EzloBridge_Async_WebSocket_Reconnect" -- Is this function
 				log.Debug("Could not reconnect, retrying in %d seconds.", reconnectRetryInterval)
 				luup.call_delay (RCNAME, reconnectRetryInterval, tostring(retry + 1))
 			end
@@ -2140,6 +2238,7 @@ log.Debug("MessageHandler %s, %s",tostring(opcode),tostring(data))
 		Connect = Connect,
 		SetTokensFromStore = SetTokensFromStore,
 		GetConnectionStatus = GetConnectionStatus,
+		UNSUPPORTED_HUB_TYPE = STAT.UNSUPPORTED_HUB_TYPE,
 		BAD_PASSWORD = STAT.BAD_PASSWORD,
 		TOKEN_EXPIRED = STAT.TOKEN_EXPIRED,
 		NO_CONNECTION = STAT.NO_CONNECTION,
@@ -2274,7 +2373,7 @@ local function build_families (devices)
 end
 
 -- return true if device is to be cloned
--- note: these are REMOTE devices from the Vera status request
+-- note: these are REMOTE devices from the Ezlo status request
 -- consider: ZWaveOnly, Included, Excluded (...takes precedence over the first two)
 -- and Mirrored, a sequence of "remote = local" device IDs for 'reverse bridging'
 
@@ -2294,6 +2393,22 @@ end
 
 -- create the child devices managed by the bridge
 local function create_children (devices, room_0)
+	-- note that many remote device attributes should NOT be cloned!
+	local function update_attributes (cloneId, dev)
+		local update_attr = {"category_num", "device_file", "device_type", "ip", "subcategory_num"}
+		local attr = luup.devices[cloneId].attributes
+		for _,a in ipairs (update_attr) do
+			attr[a] = dev[a] or ''
+		end
+	end
+	-- If device exists, set the device variables to latest values
+	local function update_variables (cloneId, dev)
+		for _, state in ipairs (dev.states) do
+--			log.Debug("Updating existing variable %s for device %d",state.variable, cloneId)
+			var.SetString(state.variable, state.value, state.service, cloneId)
+		end
+	end
+	
 	local N = 0
 	local list = {}           -- list of created or deleted devices (for logging)
 	local something_changed = false
@@ -2329,7 +2444,10 @@ end
 			local cloneId = local_by_remote_id (dev.id)
 			if not current[cloneId] then 
 				something_changed = true
+				create_new (cloneId, dev, room) -- recreate the device anyway to set current attributes and variables
 			else
+				update_attributes (cloneId, dev)      -- 2021.01.03
+				update_variables (cloneId, dev)			-- 2021.01.06
 				local new_room
 				local remote_room = tonumber(dev.room)
 				if CloneRooms then    -- force openLuup to use the same room as Vera
@@ -2339,7 +2457,6 @@ end
 				end
 				room = (new_room ~= 0) and new_room or room_0   -- use room number
 			end
-			create_new (cloneId, dev, room) -- recreate the device anyway to set current attributes and variables
 			list[#list+1] = cloneId
 			current[cloneId] = nil
 		end
@@ -2459,12 +2576,8 @@ local function GetUserData ()
 			local roomNo = local_room_index[new_room_name] or 0
 			Ndev = create_children (Vera.devices, roomNo)
 			Nscn = create_scenes (Vera.scenes, roomNo)
-			do      -- 2017.07.19
-				VeraScenes = Vera.scenes
-				VeraRoom = roomNo
-				var.SetString("Model", (Vera.model or ""))
-				var.SetString("Build Version", (Vera.BuildVersion or ""))
-			end
+			var.SetString("Model", (Vera.model or ""))
+			var.SetString("Build Version", (Vera.BuildVersion or ""))
 		end
 	end	
 	return Ndev, Nscn, version, PK_AccessPoint, loadtime
@@ -2570,26 +2683,28 @@ local function generic_action (serviceId, name)
 		return 3,0
 	end
 	local eaction = VeraActionMapping[serviceId]
-	local edevID = EzloData.reverseDeviceMap[devNo].id
-log.Debug("Action %s:%s for Ezlo device : %s.",serviceId,(name or "no action name"),(edevID or "not found!"))		
-	if eaction then 
+	local edev = EzloData.reverseDeviceMap[devNo]
+--	local edevID = EzloData.reverseDeviceMap[devNo].id
+	log.Debug("Action %s:%s for Ezlo device : %s.",serviceId,(name or "no action name"),(edev and edev.id or "not found!"))		
+	if eaction and edev then 
 		eaction = eaction[name]
 		if eaction then
 			local methods = eaction.fn(lul_device, lul_settings)
-log.Debug("number of methods to send %d.",(#methods or 0))
+			log.Debug("number of methods to send %d.",(#methods or 0))
 			if methods then
 				for _,v in ipairs(methods) do
 					local method = v.m or "hub.item.value.set"
 					local iname, value = v.i, v.v
-log.Debug("Method : %s, name : %s, value : %s", tostring(method), tostring(iname or "nil"), tostring(value))
+					log.Debug("Method : %s, name : %s, value : %s", tostring(method), tostring(iname or "nil"), tostring(value))
 					local item = EzloItemsMapping[iname]
 					if item then
 						local params = {}
+log.Debug("item hasSetter %s, id %s", tostring(item.hasSetter), EzloData.reverseDeviceMap[devNo].items[iname])						
 						if item.hasSetter and method == "hub.item.value.set" then
 							-- Get the Id of the item of the device
 							params._id = EzloData.reverseDeviceMap[devNo].items[iname]
 						else
-							params._id = edevID
+							params._id = edev.id
 						end
 						if item.scale then
 							-- It is a scalar value
@@ -2603,7 +2718,7 @@ log.Debug("Method : %s, name : %s, value : %s", tostring(method), tostring(iname
 								params.value = value
 							end	
 						end
-log.Debug("Action command "..json.encode({method=method, params=params}))
+						log.Debug("Action command "..json.encode({method=method, params=params}))
 						ezlo.Send({method=method, params=params})
 					else
 						log.Warning("Unknown item type : %s.",(iname or "nil"))
@@ -2637,35 +2752,38 @@ end
 --
 -- Ezlo incomming messages handlers
 --
+-- Update item detail in mapping table
+local function updateMapItem(eitem)
+	local v = EzloItemsMapping[eitem.name]
+	if v then
+		-- Collect extra information of items so we do not need to keep in EzloItemsMapping code.
+--		log.Debug("Setting variable details for item name %s, value type %s, scale %s. ",(eitem.name or "") ,eitem.valueType , (eitem.scale or "no scale"))
+		v.valueType = eitem.valueType or "string"
+		v.scale = eitem.scale
+		v.hasSetter = eitem.hasSetter or false
+		v.hasGetter = eitem.hasGetter or false
+	end
+end
+
 -- Map an Ezlo item to an Vera Service Variable.
 local function mapItem(eitem, vdevID)
-	local v = EzloItemsMapping[eitem.name]
+	local v = utils.DeepCopy(EzloItemsMapping[eitem.name])
 	if not v then
 		-- If we do not have any definition, map to generic sensor
 		v = {}
 		v.service = SID.gen_sensor 
 		v.variable = "CurrentLevel"
-		v.hasSetter = false
-		v.hasGetter = true
-	else
-		-- Collect extra information of items so we do not need to keep in EzloItemsMapping code.
-		if not v.valueType then
-			log.Debug("Setting variable details for item name %s, value type %s, scale %s. ",(eitem.name or "") ,eitem.valueType , (eitem.scale or "no scale"))
-			v.valueType = eitem.valueType or "string"
-			v.scale = eitem.scale
-			v.hasSetter = eitem.hasSetter or false
-			v.hasGetter = eitem.hasGetter or false
-		end
 	end
 	-- See if we have a convert function for the name
 	local value = eitem.value
 	if v.convert then
 		value = v.convert(eitem.value, vdevID)
+		v.convert = nil  -- Do not put in in data structure
 	elseif v.variable == "Tripped" and v.tripvalue then
 		-- Handle sensor tripping
 		value = (eitem.value == v.tripvalue and "1" or "0")
 	elseif eitem.valueType == "bool" then
-		value = eitem.value and "1" or "0"
+		value = (eitem.value and "1" or "0")
 	elseif eitem.valueType == "rgb" then
 		--[[ convert to Vera rgb value
 			To-do; other values than just RGB.
@@ -2692,8 +2810,16 @@ local function mapItem(eitem, vdevID)
 	elseif type(eitem.value) == "table" then
 		value = "??table??"
 	else
-		-- As default we take the formatted value
-		value = eitem.valueFormatted or eitem.value or "??" -- Note Athom has no value formatted
+		-- As default we take the formatted value (not there for Athom)
+		if eitem.valueFormatted then
+			value = eitem.valueFormatted
+		elseif type(eitem.value) == "number" then
+			-- For Athom format a number to two digits
+			value = string.format("%.2f" , eitem.value)
+		else
+			-- For other Athom values, try to make it a string.
+			value = tostring(eitem.value or "??")
+		end
 	end
 	v.value = value
 	return v
@@ -2739,13 +2865,21 @@ local function BroadcastHandler(msg_subclass, result)
 --log.Debug("Existing device %s mapping to %d.", (result.deviceId or "??"), vdevID)
 					local v = mapItem(result, vdevID)
 					if v.variable then
---log.Debug("Updating variable %s, value %s.", (v.variable or "??"), (v.value or ""))					
-						luup.variable_set (v.service, v.variable, v.value or "", vdevID)
+						if type(v.variable) == "table" then
+							-- We have mutliple variables (with same SID) to update
+							for _, vn in pairs(v.variable) do
+log.Debug("Multi-Update variable %s, value %s.", (vn or "??"), (v.value or ""))				
+								luup.variable_set (v.service, vn, v.value or "", vdevID)
+							end
+						else
+log.Debug("Single-Update variable %s, value %s.", (v.variable or "??"), (v.value or ""))					
+							luup.variable_set (v.service, v.variable, v.value or "", vdevID)
+						end
 						if v.variable == "Tripped" and v.tripvalue then
 							-- Handle sensor tripping
 							if v.value == "1" then
-								local armed = var.GetNumber("Armed", SID.sec_sensor, vdevID)
-								var.SetNumber("ArmedTripped", (armed == 1 and 1 or 0), SID.sec_sensor, vdevID)
+								local armed = var.GetBoolean("Armed", SID.sec_sensor, vdevID)
+								var.SetNumber("ArmedTripped", (armed and 1 or 0), SID.sec_sensor, vdevID)
 								var.SetNumber("LastTrip", os.time(), SID.sec_sensor, vdevID)
 							else
 								var.SetNumber("ArmedTripped", 0, SID.sec_sensor, vdevID)
@@ -2807,6 +2941,15 @@ local function BroadcastHandler(msg_subclass, result)
 			if autoStart then
 			-- to-do, 
 			end
+		elseif msg_subclass == "hub.setting.updated" then
+			-- A setting got changed
+			if result.name == "date.format" then
+				var.SetString("DateFormat", result.value or "ddmmyy")
+			elseif result.name == "time.format" then
+				var.SetNumber("TimeFormat", tonumber(result.value or 24))
+			elseif result.name == "scale.temperature" then
+				var.SetString("TemperatureScale", result.value or "celsius")
+			end
 		elseif msg_subclass == "hub.device.added" then
 			-- A device got added to Hub, restart to sync?
 			if result.plugin == "zwave" and result.event == "include_finished" then
@@ -2828,15 +2971,24 @@ end
 
 -- Handlers for method responses
 local function MethodHandler(method,result)
-	if method == "hub.offline.login.ui" then
-		log.Debug ("logged on to hub locally.")
+	if method == "plugin.connected" then
+		-- WebSocket connection is opened, start communications flow.
+		if result.authenticate then
+			-- Authentication is requested.
+			log.Debug("Send hub.offline.login.ui")
+			ezlo.Send({method="hub.offline.login.ui", params = {user = result.user, token = result.token}})
+--			ezlo.Receive()  -- To force synchronous comms.
+		else
+		end
+	elseif method == "hub.offline.login.ui" then
+		-- Authenticated with hub.
 		if EzloData.is_ready then
 			-- Reconnect, so skip to rooms.
-			log.Debug("Send list room")
-			ezlo.Send({ method = "hub.room.list" })
+			log.Debug("Send hub.modes.get")
+			ezlo.Send({ method = "hub.modes.get" })
 		else
 			-- Ask for hub information at startup
-			log.Debug("Send get hub info")
+			log.Debug("Send hub.info.get")
 			ezlo.Send({ method = "hub.info.get" })
 		end	
 	elseif method == "hub.info.get" then
@@ -2846,14 +2998,46 @@ local function MethodHandler(method,result)
 		EzloData.Vera.BuildVersion = result.firmware
 		EzloData.Vera.model = result.model
 
-		-- Set user ID like structure usind login user ID.
+		-- Set user ID like structure using login user ID.
 		EzloData.Vera.users = { id = 111111, Name = EzloHubUserID, Level = 1, IsGuest = 0 }
 
-		-- Ask for rooms list for next step. Maybe skip when CloneRooms is false?
-		log.Debug("Send list room")
-		ezlo.Send({ method = "hub.room.list" })
-	elseif method == "hub.room.list" then
-		-- Rooms list received. See if we need to clone rooms.
+		log.Debug("Send hub.modes.get")
+		ezlo.Send({ method = "hub.modes.get" })
+	elseif method == "hub.modes.get" then
+		-- House mode received. Currently maps like for like to Vera mode number.
+		-- House mode received. Currently maps like for like to Vera mode number.
+		local mode = "1"
+		if result then
+			mode = result.current or "1"
+		end	
+		EzloData.Vera.Mode = tostring(mode)
+
+		-- Get devices data from Ezlo Hub
+		local params = {}
+		if EzloData.is_ready then
+			-- On refresh less data is required
+			log.Debug("Send hub.data.list for refresh")
+			params = { 
+				devices = { fields = { include = { "name","armed","status","reachable"}}}, 
+				items = { fields = { include = { "name","deviceId","hasGetter","hasSetter","valueType","scale","value","valueFormatted"}}}, 
+				} 
+		else
+			log.Debug("Send hub.data.list for full data")
+			params = { 
+				devices = { fields = { include = { "name","category","subcategory","info","batteryPowered","parentDeviceId","roomId","armed","status","reachable"}}}, 
+				items = { fields = { include = { "name","deviceId","hasGetter","hasSetter","valueType","scale","value","valueFormatted"}}}, 
+				rooms = { fields = { include = { "name","parent_id"}}}, 
+				scenes = { fields = { include = {"name"}}},
+				settings = { fields = { include = {"value"}}}}
+				
+			-- Set user ID like structure usind login user ID.
+			EzloData.Vera.users = { id = 111111, Name = EzloHubUserID, Level = 1, IsGuest = 0 }
+		end
+		ezlo.Send({ method = "hub.data.list", params = params })
+--		if not EzloData.is_ready then ezlo.Receive() end
+	elseif method == "hub.data.list" then
+		-- Ezlo data received, create Vera like user_data
+		-- Start with Rooms
 		EzloData.Vera.rooms = {}
 		-- Determine next Vera stype room number to assign.
 		local Room_Num_Next = 1
@@ -2862,368 +3046,398 @@ local function MethodHandler(method,result)
 		if roomMap.Room_Num_Next then
 			Room_Num_Next = roomMap.Room_Num_Next
 		end
-		-- Loop over Ezlo devices and create Vera like structure.
-		for _, erm in pairs(result) do
-			-- See if we know the device
-			local vroomID = roomMap[erm._id]
-			if vroomID then
-			else
-				vroomID = Room_Num_Next
-				roomMap[erm._id] = vroomID
-				Room_Num_Next = Room_Num_Next + 1
+		local erooms = result.rooms
+		if erooms then
+			-- Loop over Ezlo rooms and create Vera like structure.
+			for e_id, erm in pairs(erooms) do
+				-- See if we know the device
+				local vroomID = roomMap[e_id]
+				if vroomID then
+				else
+					vroomID = Room_Num_Next
+					roomMap[e_id] = vroomID
+					Room_Num_Next = Room_Num_Next + 1
+				end
+				-- Make Vera like room structure
+				local room = {}
+				room.id = vroomID
+				room.name = erm.name
+				room.section = 1
+				room.posx = 0
+				room.posy = 0
+				room.width = 4
+				room.height = 4
+				-- Add to list
+				table.insert(EzloData.Vera.rooms, room)
+				roomsToRemove[e_id] = nil
 			end
-			-- Make Vera like room structure
-			local room = {}
-			room.id = vroomID
-			room.name = erm.name
-			room.section = 1
-			room.posx = 0
-			room.posy = 0
-			room.width = 4
-			room.height = 4
-			-- Add to list
-			table.insert(EzloData.Vera.rooms, room)
-			roomsToRemove[erm._id] = nil
-		end
-		roomMap = utils.PurgeList(roomMap, roomsToRemove)
-		roomMap.Room_Num_Next = Room_Num_Next
-		EzloData.roomMap = roomMap
+			roomMap = utils.PurgeList(roomMap, roomsToRemove)
+			roomMap.Room_Num_Next = Room_Num_Next
+			EzloData.roomMap = roomMap
 --log.Debug("Number of rooms mapped to Vera "..#EzloData.Vera.rooms)
 --log.Debug("EzloData.Vera.rooms"..json.encode(EzloData.Vera.rooms))
-		var.SetJson("Ezlo_roomMap",roomMap)
-
-		-- Request scenes for next step
-		log.Debug("Send list scenes")
-		ezlo.Send({ method = "hub.scenes.list" })
-	elseif method == "hub.scenes.list" then
-		-- Scenes list received, create local scenes
-		EzloData.Vera.scenes = {}
-		local roomMap = EzloData.roomMap
-		-- Determine next Vera type scene number to assign.
-		local Scene_Num_Next = 1
-		local sceneMap = var.GetJson("Ezlo_sceneMap")
-		local scenesToRemove = var.GetJson("Ezlo_sceneMap")
-		if sceneMap.Scene_Num_Next then
-			Scene_Num_Next = sceneMap.Scene_Num_Next
-		end
-		-- Loop over Ezlo devices and create Vera like structure.
-		for _, escn in pairs(result.scenes) do
-			-- See if we know the device
-			local vscnID = sceneMap[escn._id]
-			if vscnID then
-			else
-				vscnID = Scene_Num_Next
-				sceneMap[escn._id] = vscnID
-				Scene_Num_Next = Scene_Num_Next + 1
-			end
-			-- Make Vera like scene structure
-			local scene = {}
-			scene.id = vscnID
-			scene.name = escn.name
-			scene.room = tostring(roomMap[escn.parent_id] or 0)
-			scene.groups = {}  -- Is action
-			scene.triggers = {}
-			scene.onDashboard = 0
-			--scene.last_run = 
-			--scene.Timestamp = 
-			-- Add to list
-			table.insert(EzloData.Vera.scenes, scene)
-			-- Remove existing scene from to remove list
-			scenesToRemove[escn._id] = nil
-		end
-		sceneMap = utils.PurgeList(sceneMap, scenesToRemove)
-		sceneMap.Scene_Num_Next = Scene_Num_Next
-		EzloData.sceneMap = sceneMap
---log.Debug("Number of scenes mapped to Vera "..#EzloData.Vera.scenes)
---log.Debug("EzloData.Vera.scenes"..json.encode(EzloData.Vera.scenes))
-		var.SetJson("Ezlo_sceneMap", sceneMap)
-
-		-- Ask for house mode as next step. 
-		log.Debug("Send get house mode")
-		ezlo.Send({ method = "hub.modes.get" })
-	elseif method == "hub.modes.get" then
-		-- House mode received. Currently maps like for like to Vera mode number.
-		local mode = "1"
-		if result then
-			mode = result.current or "1"
-		end	
-		EzloData.Vera.Mode = tostring(mode)
-		
-		-- Ask for Devices list
-		log.Debug("Send list devices")
-		ezlo.Send({ method = "hub.devices.list" })
-	elseif method == "hub.devices.list" then
-		-- Device list received
-		if EzloData.is_ready then
-			-- Refresh device status details
-			local deviceMap = var.GetJson("Ezlo_deviceMap")
-			for _, edev in pairs(result.devices) do
-				-- Do we have wrong _id data key? Seen one log where this is the case
-				if edev._id == nil and edev.id then edev._id = edev.id end
-				-- See if we know the device
-				local vdevID = deviceMap[edev._id]
-				if vdevID then
-					vdevID = vdevID + OFFSET
-					-- Look for status updates we might have missed.
-					if edev.status == "broken" then
-						set_device_reachable_status("broken", vdevID)
-					elseif edev.reachable ~= nil then
-						set_device_reachable_status(edev.reachable, vdevID)
-					end
-					if edev.armed ~= nil then
-						var.SetBoolean("Armed", edev.armed, SID.sec_sensor, vdevID)
-					end
-					if var.GetAttribute("name", vdevID) ~= edev.name then
-						var.SetAttribute("name", edev.name, vdevID)
-					end
-				else
-					log.Warning("New device on hub not shown. _id %s, name %s", edev._id, edev.name)
-				end
-			end
+			var.SetJson("Ezlo_roomMap",roomMap)
 		else
-			-- Build Vera like devices structure.
-			EzloData.Vera.devices = {}
-			local roomMap = EzloData.roomMap
-			-- Determine next Vera stype device number to assign. We start at 4.
-			local deviceMap = var.GetJson("Ezlo_deviceMap")
-			local devicesToRemove = var.GetJson("Ezlo_deviceMap")
-			local Device_Num_Next = 4
-			if deviceMap.Device_Num_Next then
-				Device_Num_Next = deviceMap.Device_Num_Next
-			end
-			local reverseDeviceMap = {}
-			-- Loop over Ezlo devices and create Vera like structure.
---log.Debug(json.encode(result.devices))
-			for _, edev in pairs(result.devices) do
-				-- Do we have wrong _id data key? Seen one log where this is the case
-				if edev._id == nil and edev.id then edev._id = edev.id end
-				-- See if we know the device
-				local vdevID = deviceMap[edev._id]
-				if vdevID then
-				else
-					vdevID = Device_Num_Next
-					deviceMap[edev._id] = vdevID
-					Device_Num_Next = Device_Num_Next + 1
-				end
-				-- Capture device, and later the items with a Setter to use in actions.
-				reverseDeviceMap[vdevID] = {}
-				reverseDeviceMap[vdevID].id = edev._id
-				reverseDeviceMap[vdevID].items = {}
-				local cmap = EzloDeviceMapping[edev.category]
-				if cmap then
-					local map = {}
-					if cmap.device_type	then map.device_type = cmap.device_type end
-					if cmap.device_json	then map.device_json = cmap.device_json end
-					if cmap.device_file	then map.device_file = cmap.device_file end
-					if cmap.subcategory_num	then map.subcategory_num = cmap.subcategory_num end
-					if edev.subcategory ~= "" then
-						-- If we have subcategory definition overrule on base map.
-						local smap = cmap[edev.subcategory]
-						if smap then
-							if smap.device_type	then map.device_type = smap.device_type end
-							if smap.device_json	then map.device_json = smap.device_json end
-							if smap.device_file	then map.device_file = smap.device_file end
-							if smap.subcategory_num	then map.subcategory_num = smap.subcategory_num end
-						end
-					end	
-					-- Build Vera like device structure
-					local vdev = {}
-					local parentId = edev.parentDeviceId == "" and 1 or 1 -- Later to see if can have other parent.
-					vdev.id = vdevID
-					vdev.category_num = map.category_num
-					vdev.device_type = map.device_type
-					vdev.internal_id = edev._id
-					vdev.invisible = false
-					vdev.device_json = map.device_json
-					vdev.name = edev.name
-					vdev.device_file = map.device_file
-					vdev.impl_file = '' -- Not used
-					vdev.id_parent = parentId
-					vdev.room = tostring(roomMap[edev.roomId] or 0)
-					vdev.states = {}
-					vdev.subcategory_num = map.subcategory_num or 0
-					-- Armed is set here and not as item, so add that state if needed
-					if edev.armed ~= nil then
-						local val = edev.armed and "1" or "0"
-						vdev.states = {{ id = 1, service = SID.sec_sensor, variable = "Armed", value = val }}
-					end
-					-- See if we have device info (only Linux, not on RTOS)
-					if type(edev.info) == "table" then
-						vdev.manufacturer = edev.info.manufacturer
-						vdev.model = edev.info.model
-					end
-					-- See if device is reachable, we add our onw flag as status cannot be used.
-					vdev.status = -1
-					if edev.status == "broken" then
-						vdev.status = 2
-					elseif edev.reachable ~= nil then
-						vdev.status = (edev.reachable and -1 or 2)
-					end
-					-- Add to list
-					table.insert(EzloData.Vera.devices, vdev)
-				else
-					log.Log("No Vera device definition found for Ezlo category %s, subcategory %s.", (edev.category or ""), (edev.subcategory or ""))
-				end
-				devicesToRemove[edev._id] = nil
-			end
-			-- Loop over devices again to look for child devices. 
-			for _, edev in pairs(result.devices) do
-				-- We must know the device
-				if edev.parentDeviceId ~= "" then
-					-- Do we have wrong _id data key? Seen one log where this is the case
-					if edev._id == nil and edev.id then edev._id = edev.id end
-					local vdevID = deviceMap[edev._id]
+			-- On refresh no room data is needed
+			if not EzloData.is_ready then
+				log.Error ("No room data received")
+			end	
+		end
+		-- Next are devices
+		local deviceMap = var.GetJson("Ezlo_deviceMap")
+		local edevices = result.devices
+		if edevices then
+			-- Device list received
+			if EzloData.is_ready then
+				-- Refresh device status details
+				for eid, edev in pairs(edevices) do
+					-- See if we know the device
+					local vdevID = deviceMap[eid]
 					if vdevID then
-						local parent_id = deviceMap[edev.parentDeviceId]
-						if parent_id then
-							-- look up Vera device details
+						vdevID = vdevID + OFFSET
+						-- Look for status updates we might have missed.
+						if edev.status == "broken" then
+							set_device_reachable_status("broken", vdevID)
+						elseif edev.reachable ~= nil then
+							set_device_reachable_status(edev.reachable, vdevID)
+						end
+						if edev.armed ~= nil then
+							var.SetBoolean("Armed", edev.armed, SID.sec_sensor, vdevID)
+						end
+						if var.GetAttribute("name", vdevID) ~= edev.name then
+							var.SetAttribute("name", edev.name, vdevID)
+						end
+					else
+						log.Warning("New device on hub not shown. _id %s, name %s", eid, edev.name)
+					end
+				end
+			else
+				-- Build Vera like devices structure.
+				EzloData.Vera.devices = {}
+				-- Determine next Vera stype device number to assign. We start at 4.
+				local devicesToRemove = var.GetJson("Ezlo_deviceMap")
+				local Device_Num_Next = 4
+				if deviceMap.Device_Num_Next then
+					Device_Num_Next = deviceMap.Device_Num_Next
+				end
+				local reverseDeviceMap = {}
+				-- Loop over Ezlo devices and create Vera like structure.
+				for eid, edev in pairs(edevices) do
+					-- See if we know the device
+					local vdevID = deviceMap[eid]
+					if vdevID then
+					else
+						vdevID = Device_Num_Next
+						deviceMap[edev._id] = vdevID
+						Device_Num_Next = Device_Num_Next + 1
+					end
+					-- Capture device, and later the items with a Setter to use in actions.
+					reverseDeviceMap[vdevID] = {}
+					reverseDeviceMap[vdevID].id = eid
+					reverseDeviceMap[vdevID].items = {}
+					local cmap = EzloDeviceMapping[edev.category]
+					if cmap then
+						local map = {}
+						if cmap.device_type	then map.device_type = cmap.device_type end
+						if cmap.device_json	then map.device_json = cmap.device_json end
+						if cmap.device_file	then map.device_file = cmap.device_file end
+						if cmap.subcategory_num	then map.subcategory_num = cmap.subcategory_num end
+						if edev.subcategory ~= "" then
+							-- If we have subcategory definition overrule on base map.
+							local smap = cmap[edev.subcategory]
+							if smap then
+								if smap.device_type	then map.device_type = smap.device_type end
+								if smap.device_json	then map.device_json = smap.device_json end
+								if smap.device_file	then map.device_file = smap.device_file end
+								if smap.subcategory_num	then map.subcategory_num = smap.subcategory_num end
+							end
+						end	
+						-- Build Vera like device structure
+						local vdev = {}
+						local parentId = edev.parentDeviceId == "" and 1 or 1 -- Later to see if can have other parent.
+						vdev.id = vdevID
+						vdev.category_num = map.category_num
+						vdev.device_type = map.device_type
+						vdev.internal_id = eid
+						vdev.invisible = false
+						vdev.device_json = map.device_json
+						vdev.name = edev.name
+						vdev.device_file = map.device_file
+						vdev.impl_file = '' -- Not used
+						vdev.id_parent = parentId
+						vdev.room = tostring(roomMap[edev.roomId] or 0)
+						vdev.states = {}
+						vdev.subcategory_num = map.subcategory_num or 0
+						-- Armed is set here and not as item, so add that state if needed
+						if edev.armed ~= nil then
+							local val = edev.armed and "1" or "0"
+							vdev.states = {{ id = 1, service = SID.sec_sensor, variable = "Armed", value = val }}
+						end
+						-- See if we have device info (only Linux, not on RTOS)
+						if type(edev.info) == "table" then
+							vdev.manufacturer = edev.info.manufacturer
+							vdev.model = edev.info.model
+						end
+						-- See if device is reachable, we add our onw flag as status cannot be used.
+						vdev.status = -1
+						if edev.status == "broken" then
+							vdev.status = 2
+						elseif edev.reachable ~= nil then
+							vdev.status = (edev.reachable and -1 or 2)
+						end
+						-- Add to list
+						table.insert(EzloData.Vera.devices, vdev)
+					else
+						log.Log("No Vera device definition found for Ezlo category %s, subcategory %s.", (edev.category or ""), (edev.subcategory or ""))
+					end
+					devicesToRemove[eid] = nil
+				end
+				-- Loop over devices again to look for child devices. 
+				for eid, edev in pairs(edevices) do
+					-- We must know the device
+					if edev.parentDeviceId ~= "" then
+						local vdevID = deviceMap[eid]
+						if vdevID then
+							local parent_id = deviceMap[edev.parentDeviceId]
+							if parent_id then
+								-- look up Vera device details
+								for _, dev in pairs(EzloData.Vera.devices) do
+									if dev.id == vdevID then
+										dev.id_parent = parent_id
+										break
+									end
+								end
+							else
+								log.Log("Unknown Ezlo parent device %s.", edev.parentDeviceId)
+							end
+						else	
+							-- unknown device?
+							log.Error("Unknown Ezlo device %s.", eid)
+						end
+					end
+				end	
+				deviceMap = utils.PurgeList(deviceMap, devicesToRemove)
+				EzloData.Vera.Device_Num_Next = Device_Num_Next
+				EzloData.deviceMap = deviceMap
+				EzloData.reverseDeviceMap = reverseDeviceMap
+				deviceMap.Device_Num_Next = Device_Num_Next
+--log.Debug("Number of devices mapped to Vera %d.",#EzloData.Vera.devices)
+--log.Debug("EzloData.Vera.devices "..(json.encode(EzloData.Vera.devices) or "cannot encode"))
+				var.SetJson("Ezlo_deviceMap", deviceMap)
+			end
+			-- Next are device items
+			local eitems = result.items
+			if eitems then
+				-- Items list received, update device variable values.
+				-- Loop over Ezlo devices and create Vera like structure.
+				for eid, eitem in pairs(eitems) do
+					-- We are only looking for items with 'Getters' that return a value, or Setters that set a value as result of a Vera device action.
+					if eitem.hasGetter or eitem.hasSetter then
+						-- See if we know the device
+						local vdevID = deviceMap[eitem.deviceId]
+						if vdevID then
+--log.Debug("Existing device "..eitem.deviceId.. " mapping to "..vdevID)
+							-- Get the device details to add states to.
+							local device = nil
 							for _, dev in pairs(EzloData.Vera.devices) do
 								if dev.id == vdevID then
-									dev.id_parent = parent_id
+									device = dev
 									break
 								end
 							end
-						else
-							log.Log("Unknown Ezlo parent device %s.", edev.parentDeviceId)
-						end
-					else	
-						-- unknown device?
-						log.Error("Unknown Ezlo device %s.", edev._id,2)
-					end
-				end
-			end	
-			deviceMap = utils.PurgeList(deviceMap, devicesToRemove)
-			EzloData.Vera.Device_Num_Next = Device_Num_Next
-			EzloData.deviceMap = deviceMap
-			EzloData.reverseDeviceMap = reverseDeviceMap
-			deviceMap.Device_Num_Next = Device_Num_Next
---log.Debug("Number of devices mapped to Vera %d.",#EzloData.Vera.devices)
---log.Debug("EzloData.Vera.devices "..(json.encode(EzloData.Vera.devices) or "cannot encode"))
-			var.SetJson("Ezlo_deviceMap", deviceMap)
-		end
-		-- Ask for items list for device variables
-		log.Debug("Send list items")
-		ezlo.Send({ method = "hub.items.list" })
-	elseif method == "hub.items.list" then
-		-- Items list received, update device variable values.
-		local deviceMap = EzloData.deviceMap
-		-- Loop over Ezlo devices and create Vera like structure.
-		for _, eitem in pairs(result.items) do
-			-- We are only looking for items with 'Getters' that return a value, or Setters that set a value as result of a Vera device action.
-			if eitem.hasGetter or eitem.hasSetter then
-				-- See if we know the device
-				local vdevID = deviceMap[eitem.deviceId]
-				if vdevID then
---log.Debug("Existing device "..eitem.deviceId.. " mapping to "..vdevID)
-					-- Get the device details to add states to.
-					local device = nil
-					for _, dev in pairs(EzloData.Vera.devices) do
-						if dev.id == vdevID then
-							device = dev
-							break
-						end
-					end
-					if device then
-						local state = {}
-						-- Map Ezlo item to Vera service Variable.
-						local vstate = mapItem(eitem, vdevID)
---log.Debug("Item: %s",json.encode(eitem))						
+							if device then
+								-- Update item details in EzloItemsMapping table for future use.
+								updateMapItem(eitem)
+								-- Map Ezlo item to Vera service Variable.
+								local vstate = mapItem(eitem, vdevID)
+--log.Debug("Item: %s",json.encode(eitem))
 --log.Debug("Mapped State: %s",json.encode(vstate))						
-						-- If item has getter we should read the value to a Vera state variable.
-						if eitem.hasGetter then
-							if vstate then
-								if vstate.service then
-									-- Only add if there is a service.
-									state.id = #device.states + 1
-									state.service = vstate.service
-									state.variable = vstate.variable
-									state.value = vstate.value
-									if EzloData.is_ready then
-										-- Refresh values
-										var.SetString(state.variable, state.value, state.service, vdevID + OFFSET)
-									else
-										table.insert(device.states, state)
-									end	
-									if vstate.variable == "Tripped" and vstate.tripvalue then
-										-- Handle sensor tripped item. Add the ArmedTripped and LastTrip states
-										local at = "0"
---										local lt = 0	-- We do not know LastTrip time, so wait on event to set.
-										if vstate.value == "1" then
-											-- We have added Armed as first state to the device.
-											--	vdev.states = {{ id = 1, service = SID.sec_sensor, variable = "Armed", value = val }}
-											local at = device.states[1].value or "0"
---											lt = os.time()
+								-- If item has getter we should read the value to a Vera state variable.
+								if eitem.hasGetter then
+									if vstate then
+										if vstate.service then
+											-- Only add if there is a service.
+											if type(vstate.variable) == "table" then
+												-- We have multiple variables for the item
+												for _, vn in pairs(vstate.variable) do
+													local state = {}
+													state.service = vstate.service
+													state.value = vstate.value
+													state.id = #device.states + 1
+													state.variable = vn
+--log.Debug("multi map Found id %s, service %s, variable %s, value %s",state.id,state.service,state.variable,state.value)
+													if EzloData.is_ready then
+														-- Refresh values
+														var.SetString(state.variable, state.value, state.service, vdevID + OFFSET)
+													else
+														table.insert(device.states, state)
+													end
+												end
+											else
+												local state = {}
+												state.service = vstate.service
+												state.value = vstate.value
+												state.id = #device.states + 1
+												state.variable = vstate.variable
+--log.Debug("single map Found id %s, service %s, variable %s, value %s",state.id,state.service,state.variable,state.value)
+												if EzloData.is_ready then
+													-- Refresh values
+													var.SetString(state.variable, state.value, state.service, vdevID + OFFSET)
+												else
+													table.insert(device.states, state)
+												end	
+											end
+											if vstate.variable == "Tripped" and vstate.tripvalue then
+												-- Handle sensor tripped item. Add the ArmedTripped and LastTrip states
+												local at = "0"
+												local state = {}
+												--local lt = 0	-- We do not know LastTrip time, so wait on event to set.
+												if vstate.value == "1" then
+													-- We have added Armed as first state to the device.
+													--	vdev.states = {{ id = 1, service = SID.sec_sensor, variable = "Armed", value = val }}
+													local at = device.states[1].value or "0"
+													--lt = os.time()
+												end
+												state.id = #device.states + 1
+												state.service = vstate.service
+												state.variable = "ArmedTripped"
+												state.value = at
+												if EzloData.is_ready then
+													-- Refresh values
+													var.SetString(state.variable, state.value, state.service, vdevID + OFFSET)
+												else
+													table.insert(device.states, state)
+												end	
+--												local ts = {}
+--												ts.id = #device.states + 1
+--												ts.variable = "LastTrip"
+--												ts.value = lt
+--												table.insert(device.states, ts)
+											end
+										else
+											log.Info("No service mapping for device %s, name %s. Ignoring.", eitem.deviceId, eitem.name)
 										end
-										local ts = {}
-										ts.id = #device.states + 1
-										ts.service = vstate.service
-										ts.variable = "ArmedTripped"
-										ts.value = at
+									else
+										local state = {}
+										log.Info("No known service, create generic CurrentLevel")
+										-- We don't know what it is, make generic sensor (we can use this rather then defining all items)
+										state.id = #device.states + 1
+										state.service = SID.gen_sensor 
+										state.variable = "CurrentLevel"
+										state.value = eitem.valueFormatted or "??"
 										if EzloData.is_ready then
 											-- Refresh values
 											var.SetString(state.variable, state.value, state.service, vdevID + OFFSET)
 										else
-											table.insert(device.states, ts)
+											table.insert(device.states, state)
 										end	
---										ts.id = #device.states + 1
---										ts.variable = "LastTrip"
---										ts.value = lt
---										table.insert(device.states, ts)
 									end
-								else
-									log.Info("No service mapping for device %s, name %s. Ignoring.", eitem.deviceId, eitem.name)
+									-- We have many state types that do not map to Vera so we use a generic sensor CurrentLevel
+									-- Put some extra info in DisplayLine1 for the user.
+									if vstate.service == SID.gen_sensor and vstate.variable == "CurrentLevel" then
+										local state = {}
+										state.id = #device.states + 1
+										state.service = SID.altui
+										state.variable = "DisplayLine1"
+										local line = eitem.name
+										line = string.upper(line:sub(1,1))..line:sub(2)
+										state.value = line:gsub("_"," ") .. " : " .. (eitem.valueFormatted or "") .. " " .. (eitem.scale or "")
+										if EzloData.is_ready then
+											-- Refresh values
+											var.SetString(state.variable, state.value, state.service, vdevID + OFFSET)
+										else
+											table.insert(device.states, state)
+										end	
+									end
+								end	
+								-- item Setter (action)
+								if eitem.hasSetter and not EzloData.is_ready then
+									-- Capture name to deviceId map for action use.
+									if EzloData.reverseDeviceMap[vdevID] then
+										EzloData.reverseDeviceMap[vdevID].items[eitem.name] = eid
+--log.Debug("reverseDeviceMap; Add item id %s, name %s.", eid,eitem.name)										
+									end	
 								end
 							else
-								-- We don't know what it is, make generic sensor (we can use this rather then defining all items)
-								state.id = #device.states + 1
-								state.service = SID.gen_sensor 
-								state.variable = "CurrentLevel"
-								state.value = eitem.valueFormatted or "??"
-								if EzloData.is_ready then
-									-- Refresh values
-									var.SetString(state.variable, state.value, state.service, vdevID + OFFSET)
-								else
-									table.insert(device.states, state)
-								end	
-							end
-							-- We have many state types that do not map to Vera so we use a generic sensor CurrentLevel
-							-- Put some extra info in DisplayLine1 for the user.
-							if state.service == SID.gen_sensor and state.variable == "CurrentLevel" then
-								local state = {}
-								state.id = #device.states + 1
-								state.service = SID.altui
-								state.variable = "DisplayLine1"
-								local line = eitem.name
-								line = string.upper(line:sub(1,1))..line:sub(2)
-								state.value = line:gsub("_"," ") .. " : " .. (eitem.valueFormatted or "") .. " " .. (eitem.scale or "")
-								if EzloData.is_ready then
-									-- Refresh values
-									var.SetString(state.variable, state.value, state.service, vdevID + OFFSET)
-								else
-									table.insert(device.states, state)
-								end	
-							end
-						end	
-						-- item Setter (action)
-						if eitem.hasSetter and not EzloData.is_ready then
-							-- Capture name to deviceId map for action use.
-							if EzloData.reverseDeviceMap[vdevID] then
-								EzloData.reverseDeviceMap[vdevID].items[eitem.name] = eitem._id
+								-- No device with deviceID found? (should not happen)
+								log.Error("No device found for device id %d.", vdevID)
 							end	
-						end
-					else
-						-- No device with deviceID found? (should not happen)
-						log.Error("No device found for device id %d.", vdevID)
-					end	
-				else
-					-- item for unknown device?
-					log.Error("Item %s has unknown deviceId %s.", eitem._id, eitem.deviceId)
-				end	
-			else	
-				-- item has no getter or setter. Should not happen.
-				log.Error("Item %s has no Getter or Setter, name %s.", (eitem._id or "unknown"), (eitem.name or ""))
+						else
+							-- item for unknown device?
+							log.Error("Item %s has unknown deviceId %s.", eid, eitem.deviceId)
+						end	
+					else	
+						-- item has no getter or setter. Should not happen.
+						log.Error("Item %s has no Getter or Setter, name %s.", (eid or "unknown"), (eitem.name or ""))
+					end
+				end -- for
+			else
+				log.Error ("No items data received")
 			end
-		end -- for
+--log.Debug("Number of devices mapped to Vera %d.",#EzloData.Vera.devices)
+--log.Debug("EzloData.Vera.devices "..(json.encode(EzloData.Vera.devices) or "cannot encode"))
+		else
+			log.Error ("No devices data received")
+		end
+		-- Process scenes
+		local escenes = result.scenes
+		if escenes then
+			-- Scenes list received, create local scenes
+			EzloData.Vera.scenes = {}
+--			local roomMap = EzloData.roomMap
+			-- Determine next Vera type scene number to assign.
+			local Scene_Num_Next = 1
+			local sceneMap = var.GetJson("Ezlo_sceneMap")
+			local scenesToRemove = var.GetJson("Ezlo_sceneMap")
+			if sceneMap.Scene_Num_Next then
+				Scene_Num_Next = sceneMap.Scene_Num_Next
+			end
+			-- Loop over Ezlo devices and create Vera like structure.
+			for eid, escn in pairs(escenes) do
+				-- See if we know the device
+				local vscnID = sceneMap[eid]
+				if vscnID then
+				else
+					vscnID = Scene_Num_Next
+					sceneMap[eid] = vscnID
+					Scene_Num_Next = Scene_Num_Next + 1
+				end
+				-- Make Vera like scene structure
+				local scene = {}
+				scene.id = vscnID
+				scene.name = escn.name
+				scene.room = tostring(roomMap[escn.parent_id] or 0)
+				scene.groups = {}  -- Is action
+				scene.triggers = {}
+				scene.onDashboard = 0
+				--scene.last_run = 
+				--scene.Timestamp = 
+				-- Add to list
+				table.insert(EzloData.Vera.scenes, scene)
+				-- Remove existing scene from to remove list
+				scenesToRemove[eid] = nil
+			end
+			sceneMap = utils.PurgeList(sceneMap, scenesToRemove)
+			sceneMap.Scene_Num_Next = Scene_Num_Next
+			EzloData.sceneMap = sceneMap
+--log.Debug("Number of scenes mapped to Vera "..#EzloData.Vera.scenes)
+--log.Debug("EzloData.Vera.scenes"..json.encode(EzloData.Vera.scenes))
+			var.SetJson("Ezlo_sceneMap", sceneMap)
+		else
+			-- On refresh no scene data is needed
+			if not EzloData.is_ready then
+				log.Error ("No scenes data received")
+			end	
+		end
+		-- Process settings
+		local esettings = result.settings
+		if esettings then
+			-- Get relevant settings
+			if esettings["date.format"] then var.SetString("DateFormat", esettings["date.format"].value or "ddmmyy") end
+			if esettings["time.format"] then var.SetNumber("TimeFormat", esettings["time.format"].value or 24) end
+			if esettings["scale.temperature"] then var.SetString("TemperatureScale", esettings["scale.temperature"].value or "celsius") end
+		end
+
 --log.Debug("EzloData"..json.encode(EzloData))
 --log.Debug("EzloData.reverseDeviceMap "..(json.encode(EzloData.reverseDeviceMap) or "cannot encode"))
 		if not EzloData.is_ready then
@@ -3241,16 +3455,24 @@ local function MethodHandler(method,result)
 				UpdateHouseMode (EzloData.Vera.Mode)
 				if Ndev > 0 or Nscn > 0 then
 					-- Say we are ready to start processing incoming messages
-log.Debug("Flag that connection is ready")
+					log.Debug("Connection is ready and devices created.")
 					EzloData.is_ready = true
 				end
+				-- Ask for Hub information
+--				log.Debug("Send hub.info.get")
+--				ezlo.Send({ method = "hub.info.get" })
+				-- Ask for House mode details
+--				log.Debug("Send hub.modes.get")
+--				ezlo.Send({ method = "hub.modes.get" })
 			else
 				utils.SetDisplayLine("No valid Ezlo Hub", 2)
 			end
 		else
-			log.Debug("Get current house mode")
+			log.Debug("Send hub.modes.current.get")
 			ezlo.Send({ method = "hub.modes.current.get" })
 		end
+--		log.Debug("Get current house mode")
+--		ezlo.Send({ method = "hub.modes.current.get" })
 		-- Keep last update time
 		lastFullStatusUpdate = os.time()
 	elseif method == "hub.modes.switch"then
@@ -3264,7 +3486,7 @@ log.Debug("Flag that connection is ready")
 			if result then
 				mode = result.modeId or 1
 			end
-			UpdateHouseMode (mode)
+			UpdateHouseMode(mode)
 		end	
 	else
 		log.Debug("EzloMessageHandler, unhandled response has method %s.", tostring(method or "")) 
@@ -3283,7 +3505,7 @@ local function CreateDeviceVariables()
 															-- ...takes precedence over the first two.
 	var.Default ("AutoStartOnChange", 0)-- if set to 1 then adding or removing a device from teh hub will trigger a luup reload.
 	var.Default ("RemotePort", 17000)
-	var.Default ("CheckAllEveryNth", 600)-- periodic request for ALL variables to check status
+	var.Default ("CheckAllEveryNth", 3600)-- periodic request for ALL variables to check status
 	var.Default ("HouseModeMirror", 0)
     var.Default ("UserID", "")			-- UserID to logon to portal for this Ezlo
     var.Default ("Password", "")		-- Password
@@ -3292,6 +3514,10 @@ local function CreateDeviceVariables()
     var.Default ("TokenExpires", 0)		-- Will hold Token expiration timestamp
     var.Default ("WssUserID", "")		-- Will hold wss userID after logon     
     var.Default ("WssToken", "")		-- Will hold wss Token after logon
+	var.Default ("AuthenticatedAccess", 1)	-- By default authentication is assumed.
+	var.Default ("DateFormat", "ddmmyy")	-- Ezlo Hub settings.
+	var.Default ("TimeFormat", 24)
+	var.Default ("TemperatureScale", "celsius")
 end
 
 -- plugin startup
@@ -3318,27 +3544,28 @@ function init (lul_device)
 	else	
 		log.Log("We are running on Vera UI%s.",utils.GetUI())
 --		if utils.GetUI() < utils.IsUI7 then
+		if true then
 			local status_msg = "Vera is not supported."
 			log.Error(status_msg)
 			utils.SetDisplayLine(status_msg, 1)
 			utils.SetDisplayLine("", 2)
 			luup.set_failure (0)
 			return false, status_msg, ABOUT.NAME
---		end	
+		end	
 		-- Do not need to check on openLuup as it will not run code if device is disabled.
---		if var.GetAttribute("disabled", devNo) == 1 then
---			local status_msg = "Disabled in attributes."
---			log.Warning(status_msg)
---			utils.SetDisplayLine(status_msg, 1)
---			utils.SetDisplayLine("", 2)
---			luup.set_failure (0)
---			return false, status_msg, ABOUT.NAME
---		end
+		if var.GetAttribute("disabled", devNo) == 1 then
+			local status_msg = "Disabled in attributes."
+			log.Warning(status_msg)
+			utils.SetDisplayLine(status_msg, 1)
+			utils.SetDisplayLine("", 2)
+			luup.set_failure (0)
+			return false, status_msg, ABOUT.NAME
+		end
 	end
  
 	ip = var.GetAttribute("ip", devNo)
 	log.Log("Bridging to %s", ip)
-	ezlo.Initialize(var.GetNumber("LogLevel")>=10)
+	ezlo.Initialize(var.GetNumber("LogLevel")>10)
 	-------
 	-- 2020.02.12 use existing Bridge offset, if defined.
 	-- this way, it doesn't matter if other bridges get deleted, we keep the same value
@@ -3354,10 +3581,10 @@ function init (lul_device)
 		return (maxBlock + 1) * BLOCKSIZE                                           -- new block offset
 	end
 ]]
+	CreateDeviceVariables()
 	OFFSET = var.GetNumber("Offset")
 	if not OFFSET then
 		-- Indication of first run, create variables
-		CreateDeviceVariables()
 		OFFSET = luup.openLuup.bridge.nextIdBlock()
 		var.SetNumber("Offset", OFFSET)
 	end
@@ -3366,19 +3593,20 @@ function init (lul_device)
 	-- User configuration parameters
 	BridgeScenes		= var.GetBoolean("BridgeScenes")
 	CloneRooms	 		= var.GetBoolean("CloneRooms")
-	ZWaveOnly			= var.GetBoolean("ZWaveOnly")
+--	ZWaveOnly			= var.GetBoolean("ZWaveOnly")
 	Included			= var.GetSet("IncludeDevices")
 	Excluded			= var.GetSet("ExcludeDevices")
 	RemotePort			= var.GetNumber("RemotePort")
 	CheckAllEveryNth	= var.GetNumber("CheckAllEveryNth")
 	HouseModeMirror		= var.GetNumber("HouseModeMirror")
     EzloHubUserID		= var.GetString("UserID")
+    EzloHubSerial		= var.GetString("HubSerial")
     local Password		= var.GetString("Password")
-    local Serial		= var.GetString("HubSerial")
     local HubToken		= var.GetString("HubToken")
     local TokenExpires	= var.GetNumber("TokenExpires")
     local WssUserID		= var.GetString("WssUserID")
     local WssToken		= var.GetString("WssToken")
+	local Authenticate	= var.GetBoolean("AuthenticatedAccess")
   
 	-- map remote Zwave controller device if we are the primary VeraBridge 
 	if OFFSET == BLOCKSIZE then 
@@ -3394,7 +3622,7 @@ function init (lul_device)
 --	var.SetBoolean ("ZWaveOnly", true)
 	
 	-- Make sure we have user credentials and Hub IP
-	if EzloHubUserID ~= "" and Password ~= "" and Serial ~= "" and ip ~= "" then
+	if EzloHubUserID ~= "" and ip ~= "" and (not Authenticate or (EzloHubSerial ~= "" and Password ~= "")) then
 		-- Logon to Ezlo hub and kick off messaging
 		utils.SetDisplayLine("Connecting to Ezlo Hub...", 1)
 		-- Register incoming message handlers
@@ -3409,11 +3637,11 @@ function init (lul_device)
 		ezlo.RegisterErrorHandler("*", ErrorHandler)
 		ezlo.RegisterBroadcastHandler("*", BroadcastHandler)
 	
-		-- No token stored, so logon to portal to obtain and sync with hub
-		if WssToken == '' or WssUserID == '' or TokenExpires == 0 then
+		-- Authentication needed and no token stored, so logon to portal to obtain and sync with hub
+		if Authenticate and (WssToken == '' or WssUserID == '' or TokenExpires == 0) then
 			utils.SetDisplayLine("Getting tokens from Ezlo Portal", 2)
 			local stat
-			stat, WssToken, WssUserID, TokenExpires = ezlo.PortalLogin (EzloHubUserID, Password, Serial)
+			stat, WssToken, WssUserID, TokenExpires = ezlo.PortalLogin (EzloHubUserID, Password, EzloHubSerial)
 			if not stat then
 				log.Error("Unable to logon to portal %s.", WssToken)
 				status_msg = "Unable to logon to Ezlo portal"
@@ -3425,14 +3653,17 @@ function init (lul_device)
 			var.SetString("WssUserID", WssUserID)
 			var.SetString("WssToken", WssToken)
 			var.SetNumber("TokenExpires", TokenExpires)
+			log.Debug(os.date("Token expires : %c", TokenExpires))
 		else
-			log.Debug("Using stored credentials.")
+			log.Debug("No authentication or using stored credentials.")
 		end
-		log.Debug(os.date("Token expires : %c", TokenExpires))
 
 		-- Open web socket connection
-		utils.SetDisplayLine("Opening web-socket to Hub.", 2)
-		local res, msg = ezlo.Connect (ip, WssToken, WssUserID)
+--		utils.SetDisplayLine("Opening web-socket to Hub.", 2)
+		-- The Hub login response from the Hub will trigger the rest of the processing
+		utils.SetDisplayLine("Getting devices and scenes...", 1)
+		utils.SetDisplayLine(ip, 2)
+		local res, msg = ezlo.Connect (ip, Authenticate, WssToken, WssUserID)
 		if not res then
 			log.Error("Could not connect to Hub, %s.", (msg or ""))
 			-- Erase stored keys
@@ -3445,12 +3676,13 @@ function init (lul_device)
 			return false, status_msg, ABOUT.NAME
 		end
 		-- The Hub login response from the Hub will trigger the rest of the processing
-		utils.SetDisplayLine("Getting devices and scenes...", 1)
-		utils.SetDisplayLine(ip, 2)
+--		utils.SetDisplayLine("Getting devices and scenes...", 1)
+--		utils.SetDisplayLine(ip, 2)
 
 		-- Kick off message scheduler (poll each second for incoming data)
 		res, msg = ezlo.StartPoller()
 		-- Start watch dog that will do a full status pull on scheduled interval.
+		lastFullStatusUpdate = os.time()
 		luup.call_delay("EzloBridge_async_watchdog", CheckAllEveryNth, CheckAllEveryNth)
 		
 		luup.set_failure (0)                        -- all's well with the world
