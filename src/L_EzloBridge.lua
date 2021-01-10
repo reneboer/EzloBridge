@@ -2979,6 +2979,16 @@ local function MethodHandler(method,result)
 			ezlo.Send({method="hub.offline.login.ui", params = {user = result.user, token = result.token}})
 --			ezlo.Receive()  -- To force synchronous comms.
 		else
+			-- No need to authenticate with hub.
+			if EzloData.is_ready then
+				-- Reconnect, so skip to rooms.
+				log.Debug("Send hub.modes.get")
+				ezlo.Send({ method = "hub.modes.get" })
+			else
+				-- Ask for hub information at startup
+				log.Debug("Send hub.info.get")
+				ezlo.Send({ method = "hub.info.get" })
+			end	
 		end
 	elseif method == "hub.offline.login.ui" then
 		-- Authenticated with hub.
@@ -3027,8 +3037,9 @@ local function MethodHandler(method,result)
 				devices = { fields = { include = { "name","category","subcategory","info","batteryPowered","parentDeviceId","roomId","armed","status","reachable"}}}, 
 				items = { fields = { include = { "name","deviceId","hasGetter","hasSetter","valueType","scale","value","valueFormatted"}}}, 
 				rooms = { fields = { include = { "name","parent_id"}}}, 
-				scenes = { fields = { include = {"name"}}},
-				settings = { fields = { include = {"value"}}}}
+				scenes = { fields = { include = {"name"}}}
+			--	Issue on Atom and not yet used. settings = { fields = { include = {"value"}}}
+			}
 				
 			-- Set user ID like structure usind login user ID.
 			EzloData.Vera.users = { id = 111111, Name = EzloHubUserID, Level = 1, IsGuest = 0 }
@@ -3049,13 +3060,13 @@ local function MethodHandler(method,result)
 		local erooms = result.rooms
 		if erooms then
 			-- Loop over Ezlo rooms and create Vera like structure.
-			for e_id, erm in pairs(erooms) do
+			for eid, erm in pairs(erooms) do
 				-- See if we know the device
-				local vroomID = roomMap[e_id]
+				local vroomID = roomMap[eid]
 				if vroomID then
 				else
 					vroomID = Room_Num_Next
-					roomMap[e_id] = vroomID
+					roomMap[eid] = vroomID
 					Room_Num_Next = Room_Num_Next + 1
 				end
 				-- Make Vera like room structure
@@ -3069,7 +3080,7 @@ local function MethodHandler(method,result)
 				room.height = 4
 				-- Add to list
 				table.insert(EzloData.Vera.rooms, room)
-				roomsToRemove[e_id] = nil
+				roomsToRemove[eid] = nil
 			end
 			roomMap = utils.PurgeList(roomMap, roomsToRemove)
 			roomMap.Room_Num_Next = Room_Num_Next
@@ -3128,7 +3139,7 @@ local function MethodHandler(method,result)
 					if vdevID then
 					else
 						vdevID = Device_Num_Next
-						deviceMap[edev._id] = vdevID
+						deviceMap[eid] = vdevID
 						Device_Num_Next = Device_Num_Next + 1
 					end
 					-- Capture device, and later the items with a Setter to use in actions.
@@ -3434,7 +3445,7 @@ local function MethodHandler(method,result)
 		if esettings then
 			-- Get relevant settings
 			if esettings["date.format"] then var.SetString("DateFormat", esettings["date.format"].value or "ddmmyy") end
-			if esettings["time.format"] then var.SetNumber("TimeFormat", esettings["time.format"].value or 24) end
+			if esettings["time.format"] then var.SetNumber("TimeFormat", tonumber(esettings["time.format"].value) or 24) end
 			if esettings["scale.temperature"] then var.SetString("TemperatureScale", esettings["scale.temperature"].value or "celsius") end
 		end
 
