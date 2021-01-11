@@ -49,7 +49,7 @@ var EzloBridge = (function (api) {
 				var ip = !!deviceObj.ip ? deviceObj.ip : '';
 				html +=	htmlAddInput(deviceID, 'Ezlo Hub IP Address', 20, 'IPAddress', VB_SID, ip) + 
 				htmlAddInput(deviceID, 'Ezlo Hub User ID', 20, 'UserID')+
-				htmlAddPulldown(deviceID, 'AuthenticatedAccess', 'AuthenticatedAccess', yesNo)+
+				htmlAddPulldown(deviceID, 'Authenticated Access', 'AuthenticatedAccess', yesNo)+
 				'<div id="'+DIV_PREFIX+deviceID+'div_show_pwd" style="display: '+((authAcc === '1')?'block':'none')+';" >'+
 				htmlAddPwdInput(deviceID, 'Ezlo Hub Password', 20, 'Password')+
 				htmlAddInput(deviceID, 'Ezlo Hub Serial', 20, 'HubSerial')+
