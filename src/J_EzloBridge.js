@@ -1,8 +1,10 @@
-//# sourceURL=J_Harmony.js
-/* harmony Hub Control UI
+//# sourceURL=J_EzloBridge.js
+/* Ezlo Hub Control UI
  Written by R.Boer. 
- V1.01 1 July 2020
+ V2.0 5 January 2021
 
+ V2.0 Changes:
+		Added AuthenticatedAccess setting
  V1.01 Changes:
 		Added AutoStartOnChange setting
 */
@@ -42,34 +44,29 @@ var EzloBridge = (function (api) {
 			if (deviceObj.disabled === '1' || deviceObj.disabled === 1) {
 				html += '<br>Plugin is disabled in Attributes.</div>';
 			} else {
-				var curSystem = varGet(deviceID, 'RemotePort');
+				var authAcc = varGet(deviceID, 'AuthenticatedAccess');
 				var deviceObj = api.getDeviceObject(deviceID);
 				var ip = !!deviceObj.ip ? deviceObj.ip : '';
 				html +=	htmlAddInput(deviceID, 'Ezlo Hub IP Address', 20, 'IPAddress', VB_SID, ip) + 
-//				htmlAddPulldown(deviceID, 'Remote Hub Type', 'RemotePort', hubList)+
-//				'<div id="'+DIV_PREFIX+deviceID+'div_system_vera" style="display: '+((curSystem !== '17000')?'block':'none')+';" >'+
-//				htmlAddPulldown(deviceID, 'Async Polling', 'AsyncPoll', yesNo)+
-//				htmlAddPulldown(deviceID, 'Only Zwave devices', 'ZWaveOnly', yesNo)+
-//				'</div>'+
-//				'<div id="'+DIV_PREFIX+deviceID+'div_system_ezlo" style="display: '+((curSystem === '17000')?'block':'none')+';" >'+
-				htmlAddInput(deviceID, 'Ezlo Hub Serial', 20, 'HubSerial')+
 				htmlAddInput(deviceID, 'Ezlo Hub User ID', 20, 'UserID')+
+				htmlAddPulldown(deviceID, 'AuthenticatedAccess', 'AuthenticatedAccess', yesNo)+
+				'<div id="'+DIV_PREFIX+deviceID+'div_show_pwd" style="display: '+((authAcc === '1')?'block':'none')+';" >'+
 				htmlAddPwdInput(deviceID, 'Ezlo Hub Password', 20, 'Password')+
-//				'</div>'+
+				htmlAddInput(deviceID, 'Ezlo Hub Serial', 20, 'HubSerial')+
+				'</div>'+
 				htmlAddPulldown(deviceID, 'House Mode Mirroring', 'HouseModeMirror', hmmList)+
 				htmlAddPulldown(deviceID, 'Bridge Scenes', 'BridgeScenes', yesNo)+
 				htmlAddPulldown(deviceID, 'Clone Rooms', 'CloneRooms', yesNo)+
 				htmlAddPulldown(deviceID, 'Full status interval', 'CheckAllEveryNth', intervalList)+
-				htmlAddPulldown(deviceID, 'Reload when device added/removed', 'AutoStartOnChange', yesNo)+
+//				htmlAddPulldown(deviceID, 'Reload when device added/removed', 'AutoStartOnChange', yesNo)+
 				htmlAddPulldown(deviceID, 'Log level', 'LogLevel', logLevel)+
 				htmlAddButton(deviceID, 'UpdateSettingsCB')+
-				'</div>';
-//				'<script>'+
-//				' $("#'+DIV_PREFIX+'RemotePort'+deviceID+'").change(function() {'+
-//				'   if($(this).val()!=17000){$("#'+DIV_PREFIX+deviceID+'div_system_ezlo").hide();$("#'+DIV_PREFIX+deviceID+'div_system_vera").show();};'+
-//				'   if($(this).val()==17000){$("#'+DIV_PREFIX+deviceID+'div_system_vera").hide();$("#'+DIV_PREFIX+deviceID+'div_system_ezlo").show();};'+
-//				' });'+
-//				'</script>';
+				'</div>'+
+				'<script>'+
+				' $("#'+DIV_PREFIX+'AuthenticatedAccess'+deviceID+'").change(function() {'+
+				'   if($(this).val()!=1){$("#'+DIV_PREFIX+deviceID+'div_show_pwd").hide();}else{$("#'+DIV_PREFIX+deviceID+'div_show_pwd").show();};'+
+				' });'+
+				'</script>';
 			}
 			api.setCpanelContent(html);
         } catch (e) {
@@ -82,16 +79,11 @@ var EzloBridge = (function (api) {
 		showBusy(true);
 		var ipa = htmlGetElemVal(deviceID, 'IPAddress');
 		if (ipa != '') { api.setDeviceAttribute(deviceID, 'ip', ipa); }
-//		var rp = htmlGetPulldownSelection(deviceID, 'RemotePort');
-//		varSet(deviceID,'RemotePort',rp);
-//		if (rp == 17000) {
-			varSet(deviceID,'HubSerial',htmlGetElemVal(deviceID, 'HubSerial'));
-			varSet(deviceID,'UserID',htmlGetElemVal(deviceID, 'UserID'));
-			varSet(deviceID,'Password',htmlGetElemVal(deviceID, 'Password'));
-//		} else {
-//			varSet(deviceID,'AsyncPoll',htmlGetPulldownSelection(deviceID, 'AsyncPoll'));
-//			varSet(deviceID,'ZWaveOnly',htmlGetPulldownSelection(deviceID, 'ZWaveOnly'));
-//		}
+		varSet(deviceID,'HubSerial',htmlGetElemVal(deviceID, 'HubSerial'));
+		varSet(deviceID,'UserID',htmlGetElemVal(deviceID, 'UserID'));
+		var auth = htmlGetElemVal(deviceID, 'AuthenticatedAccess');
+		varSet(deviceID,'AuthenticatedAccess',auth);
+		if (auth == 1) { varSet(deviceID,'Password',htmlGetElemVal(deviceID, 'Password')); }
 		varSet(deviceID,'HouseModeMirror',htmlGetPulldownSelection(deviceID, 'HouseModeMirror'));
 		varSet(deviceID,'BridgeScenes',htmlGetPulldownSelection(deviceID, 'BridgeScenes'));
 		varSet(deviceID,'CloneRooms',htmlGetPulldownSelection(deviceID, 'CloneRooms'));
