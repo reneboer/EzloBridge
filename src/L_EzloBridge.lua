@@ -1,6 +1,6 @@
 ABOUT = {
   NAME          = "EzloBridge",
-  VERSION       = "2.0",
+  VERSION       = "2.1",
   DESCRIPTION   = "EzloBridge plugin for openLuup",
   AUTHOR        = "reneboer",
   COPYRIGHT     = "(c) 2013-2020 AKBooer and reneboer",
@@ -69,6 +69,7 @@ also to logically group device numbers for remote machine device clones.
 2.0				Changed Ezlo device, Items and Scenes retrieval to hub.data.list  with optimized filter
 				Added unauthenticated access option 
 				Existing devices are no longer recreated at start up. Thanks akbooer.
+2.1				Will run without cjson package installed. (not reccomended)
 
 To do's: 
 	better reconnect handler to deal with expired token (did not have it expire yet to test).
@@ -89,7 +90,10 @@ local devNo                      -- our device number
 local chdev     = require "openLuup.chdev"
 local scenes    = require "openLuup.scenes"
 local userdata  = require "openLuup.userdata"
-local cjson     = require "cjson"
+local cjson		= nil
+if pcall(require, "cjson") then
+	cjson		= require("cjson")
+end
 local dkjson    = require "dkjson"
 
 local ip					-- remote machine ip address
@@ -696,6 +700,16 @@ end
 -- Wrapper for more solid handling for cjson as it trows a bit more errors that I'd like.
 local function jsonAPI()
 local is_cj, is_dk
+
+	local function clean_cjson_nulls (x)    -- 2020.05.20  replace any cjson.null with nil. To use, maybe, thanks akbooer.
+		for n,v in pairs (x) do
+			if type(v) == "table" then 
+				clean_cjson_nulls (v) 
+			elseif v == cjson.null then 
+				x[n] = nil
+			end
+		end
+	end
 
 	local function _init()
 		is_cj = type(cjson) == "table"
