@@ -1,6 +1,6 @@
 ABOUT = {
   NAME          = "EzloBridge",
-  VERSION       = "2.1",
+  VERSION       = "2.2",
   DESCRIPTION   = "EzloBridge plugin for openLuup",
   AUTHOR        = "reneboer",
   COPYRIGHT     = "(c) 2013-2020 AKBooer and reneboer",
@@ -70,6 +70,7 @@ also to logically group device numbers for remote machine device clones.
 				Added unauthenticated access option 
 				Existing devices are no longer recreated at start up. Thanks akbooer.
 2.1				Will run without cjson package installed. (not reccomended)
+2.2				Fix for missing category_num attribute. Thanks crile.
 
 To do's: 
 	better reconnect handler to deal with expired token (did not have it expire yet to test).
@@ -2412,6 +2413,7 @@ local function create_children (devices, room_0)
 		local update_attr = {"category_num", "device_file", "device_type", "ip", "subcategory_num"}
 		local attr = luup.devices[cloneId].attributes
 		for _,a in ipairs (update_attr) do
+--			log.Debug("Updating existing attibute %s with value %s for device %d",a,dev[a] or '', cloneId)
 			attr[a] = dev[a] or ''
 		end
 	end
@@ -2460,7 +2462,6 @@ end
 				something_changed = true
 				create_new (cloneId, dev, room) -- recreate the device anyway to set current attributes and variables
 			else
-				update_attributes (cloneId, dev)      -- 2021.01.03
 				update_variables (cloneId, dev)			-- 2021.01.06
 				local new_room
 				local remote_room = tonumber(dev.room)
@@ -2471,6 +2472,7 @@ end
 				end
 				room = (new_room ~= 0) and new_room or room_0   -- use room number
 			end
+			update_attributes (cloneId, dev)      -- 2021.01.03
 			list[#list+1] = cloneId
 			current[cloneId] = nil
 		end
@@ -3114,11 +3116,14 @@ local function MethodHandler(method,result)
 		if edevices then
 			-- Device list received
 			if EzloData.is_ready then
+log.Debug("Is ready, update Ezlo_deviceMap %s", var.Get("Ezlo_deviceMap"))
 				-- Refresh device status details
 				for eid, edev in pairs(edevices) do
 					-- See if we know the device
+log.Debug("Processing device %s", eid)					
 					local vdevID = deviceMap[eid]
 					if vdevID then
+log.Debug("Device found, update values")
 						vdevID = vdevID + OFFSET
 						-- Look for status updates we might have missed.
 						if edev.status == "broken" then
@@ -3133,10 +3138,15 @@ local function MethodHandler(method,result)
 							var.SetAttribute("name", edev.name, vdevID)
 						end
 					else
+if edev then
 						log.Warning("New device on hub not shown. _id %s, name %s", eid, edev.name)
+else
+						log.Warning("New device on hub not shown. _id %s, name unknown", eid)
+end
 					end
 				end
 			else
+log.Debug("Startup, build Ezlo_deviceMap %s", var.Get("Ezlo_deviceMap"))
 				-- Build Vera like devices structure.
 				EzloData.Vera.devices = {}
 				-- Determine next Vera stype device number to assign. We start at 4.
@@ -3166,6 +3176,7 @@ local function MethodHandler(method,result)
 						if cmap.device_type	then map.device_type = cmap.device_type end
 						if cmap.device_json	then map.device_json = cmap.device_json end
 						if cmap.device_file	then map.device_file = cmap.device_file end
+						if cmap.category_num	then map.category_num = cmap.category_num end
 						if cmap.subcategory_num	then map.subcategory_num = cmap.subcategory_num end
 						if edev.subcategory ~= "" then
 							-- If we have subcategory definition overrule on base map.
