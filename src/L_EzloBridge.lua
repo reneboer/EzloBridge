@@ -1,6 +1,6 @@
 ABOUT = {
   NAME          = "EzloBridge",
-  VERSION       = "2.3",
+  VERSION       = "2.4",
   DESCRIPTION   = "EzloBridge plugin for openLuup",
   AUTHOR        = "reneboer",
   COPYRIGHT     = "(c) 2013-2020 AKBooer and reneboer",
@@ -72,6 +72,7 @@ also to logically group device numbers for remote machine device clones.
 2.1				Will run without cjson package installed. (not reccomended)
 2.2				Fix for missing category_num attribute. Thanks crile.
 2.3				Only set device attributes on creation, not with updates.
+2.4				Fix for Humidity sensor.
 
 To do's: 
 	better reconnect handler to deal with expired token (did not have it expire yet to test).
@@ -1146,7 +1147,7 @@ local EzloItemsMapping = {
 	heat_alarm = {service = SID.sec_sensor, variable = "Tripped", tripvalue = "overheat_detected"}, 
 	heat_rate = {service = SID.gen_sensor, variable = "HeatRate"},
 	heat_rate_lf_hf_ratio = {service = SID.gen_sensor, variable = "HeatRateLfHfRatio"},
-	humidity = {service = SID.hum_sensor, variable = "Humidity"},
+	humidity = {service = SID.hum_sensor, variable = "CurrentLevel"},
 	hw_state = {service = SID.gen_sensor, variable = "HwState"},
 	intrusion_alarm = {service = SID.sec_sensor, variable = "Tripped", tripvalue = "intrusion"},
 	keypad_state = {service = SID.door_lock, variable = { "Status", "Target" }},
