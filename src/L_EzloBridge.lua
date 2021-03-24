@@ -1,6 +1,6 @@
 ABOUT = {
   NAME          = "EzloBridge",
-  VERSION       = "2.2",
+  VERSION       = "2.3",
   DESCRIPTION   = "EzloBridge plugin for openLuup",
   AUTHOR        = "reneboer",
   COPYRIGHT     = "(c) 2013-2020 AKBooer and reneboer",
@@ -71,13 +71,14 @@ also to logically group device numbers for remote machine device clones.
 				Existing devices are no longer recreated at start up. Thanks akbooer.
 2.1				Will run without cjson package installed. (not reccomended)
 2.2				Fix for missing category_num attribute. Thanks crile.
+2.3				Only set device attributes on creation, not with updates.
 
 To do's: 
 	better reconnect handler to deal with expired token (did not have it expire yet to test).
 	command queue during lost connection. (is this needed?)
 	better support of locks
 	Make it work on Vera
-	(Added mDNS query to get hub serial and type before connecting.)
+	Add mDNS query to get hub serial and type before connecting.
 
 Messages when hub is starting. Normally at restart the WS connections is lost and a reconnect is triggered.
 {"id":"ui_broadcast","msg_subclass":"hub.gateway.updated","result":{"_id":"5ec3e5a4124c4114fb88839f","status":"starting"}}
@@ -2472,7 +2473,7 @@ end
 				end
 				room = (new_room ~= 0) and new_room or room_0   -- use room number
 			end
-			update_attributes (cloneId, dev)      -- 2021.01.03
+--			update_attributes (cloneId, dev)      -- 2021.01.03
 			list[#list+1] = cloneId
 			current[cloneId] = nil
 		end
