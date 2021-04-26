@@ -1,8 +1,10 @@
 //# sourceURL=J_EzloBridge.js
 /* Ezlo Hub Control UI
  Written by R.Boer. 
- V2.0 5 January 2021
+ V2.6 25 April 2021
 
+ V2.6 Changes:
+		Added Bridge setting tab
  V2.0 Changes:
 		Added AuthenticatedAccess setting
  V1.01 Changes:
@@ -45,7 +47,6 @@ var EzloBridge = (function (api) {
 				html += '<br>Plugin is disabled in Attributes.</div>';
 			} else {
 				var authAcc = varGet(deviceID, 'AuthenticatedAccess');
-				var deviceObj = api.getDeviceObject(deviceID);
 				var ip = !!deviceObj.ip ? deviceObj.ip : '';
 				html +=	htmlAddInput(deviceID, 'Ezlo Hub IP Address', 20, 'IPAddress', VB_SID, ip) + 
 				htmlAddInput(deviceID, 'Ezlo Hub User ID', 20, 'UserID')+
@@ -73,7 +74,7 @@ var EzloBridge = (function (api) {
             Utils.logError('Error in '+MOD_PREFIX+'.Settings(): ' + e);
         }
 	}
-	
+
 	function _UpdateSettingsCB(deviceID) {
 		// Save variable values so we can access them in LUA without user needing to save
 		showBusy(true);
@@ -102,6 +103,74 @@ var EzloBridge = (function (api) {
 			}
 		}, 3000);	
 	}
+
+	// Return HTML for Bridged devices tab
+	function _BridgeSettings() {
+		_init();
+        try {
+			var deviceID = api.getCpanelDeviceId();
+			var deviceObj = api.getDeviceObject(deviceID);
+			var html = '<div class="deviceCpanelBridgePage">'+
+				'<h3>Device #'+deviceID+'&nbsp;&nbsp;&nbsp;'+api.getDisplayedDeviceName(deviceID)+'</h3>';
+			if (deviceObj.disabled === '1' || deviceObj.disabled === 1) {
+				html += '<br>Plugin is disabled in Attributes.</div>';
+			} else {
+				var bridgeTypes = [{'value':'A','label':'Bridge All'},{'value':'W','label':'Include only selected'},{'value':'B','label':'Exclude selected'}];
+				
+ 				var dList = JSON.parse(varGet(deviceID, 'Ezlo_deviceList'));
+				if (dList.length > 0) {
+					var BWList = varGet(deviceID, 'BridgeBWList').split(",");
+					var bType = varGet(deviceID, 'BridgeType');
+					html += htmlAddPulldown(deviceID, 'Device Bridging', 'BridgeType', bridgeTypes)+
+					'<div id="'+DIV_PREFIX+deviceID+'div_show_devices" style="display: '+((bType !== 'A')?'block':'none')+';" >';
+					dList.sort(function(a,b) { return a.name.localeCompare(b.name); });
+					for(var i=0;i<dList.length;i++){
+						var checked = ((BWList.includes(dList[i].id))?' checked':'');
+						html += '<input type="checkbox" id="bridgebwd"'+i+' name="bridgebwd"'+i+' value="'+dList[i].id+'" '+checked+'>'+
+						'<label for="bridgebwd"'+i+'> '+dList[i].name+' ('+dList[i].id+')</label><br>';
+					}
+					html += '</div>'+
+					htmlAddButton(deviceID, 'UpdateBridgeSettingsCB')+
+					'</div>'+
+					'<script>'+
+					' $("#'+DIV_PREFIX+'BridgeType'+deviceID+'").change(function() {'+
+					'   if($(this).val()=="A"){$("#'+DIV_PREFIX+deviceID+'div_show_devices").hide();}else{$("#'+DIV_PREFIX+deviceID+'div_show_devices").show();};'+
+					' });'+
+					'</script>';
+				} else {
+					html += '<br>No Ezlo devices found. Finish settings first.</div>';
+				}
+			}
+			api.setCpanelContent(html);
+        } catch (e) {
+            Utils.logError('Error in '+MOD_PREFIX+'.BridgeDevices(): ' + e);
+		}
+	}
+	function _UpdateBridgeSettingsCB(deviceID) {
+		// Save variable values so we can access them in LUA without user needing to save
+		showBusy(true);
+		var BWList = [];
+		// Get selected devices.
+		$(":checkbox").each(function(){
+			if ($(this).is(":checked")) {
+				BWList.push($(this).val());
+			}
+		});
+		varSet(deviceID,'BridgeBWList',BWList.join());
+		varSet(deviceID,'BridgeType',htmlGetElemVal(deviceID, 'BridgeType'));
+		application.sendCommandSaveUserData(true);
+		setTimeout(function() {
+			doReload(deviceID);
+			showBusy(false);
+			try {
+				api.ui.showMessagePopup(Utils.getLangString("ui7_device_cpanel_details_saved_success","Bridge settings saved successfully."),0);
+			}
+			catch (e) {
+				Utils.logError(MOD_PREFIX+': UpdateBridgeSettings(): ' + e);
+			}
+		}, 3000);	
+	}
+	
 	// Update variable in user_data and lu_status
 	function varSet(deviceID, varID, varVal, sid) {
 		if (typeof(sid) == 'undefined') { sid = VB_SID; }
@@ -223,9 +292,11 @@ var EzloBridge = (function (api) {
         init: _init,
         onBeforeCpanelClose: _onBeforeCpanelClose,
 		UpdateSettingsCB: _UpdateSettingsCB,
+		UpdateBridgeSettingsCB: _UpdateBridgeSettingsCB,
 		
 		// For JSON calls
         Settings: _Settings,
+		BridgeSettings: _BridgeSettings
     };
     return myModule;
 })(api);

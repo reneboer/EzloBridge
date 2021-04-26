@@ -78,6 +78,17 @@
 		"ScriptName": "J_EzloBridge.js", 
 		"Function": "EzloBridge.Settings" 
 	},
+	{ 
+		"Label": { 
+			"lang_tag": "bridging", 
+			"text": "Briging" 
+		}, 
+		"TopNavigationTab": 1, 
+		"Position": "2", 
+		"TabType": "javascript", 
+		"ScriptName": "J_EzloBridge.js", 
+		"Function": "EzloBridge.BridgeSettings" 
+	},
 	{
 		"Label": {
 			"lang_tag": "advanced",
